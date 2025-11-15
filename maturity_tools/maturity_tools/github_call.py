@@ -1,7 +1,7 @@
 """This module contains functions to interact with the GitHub API."""
 import requests
 from typing import Any, Dict, Optional
-from maturity_tools.queries import branches_query
+from maturity_tools.queries import branches_query, commits_query
 import pandas as pd
 
 
@@ -78,3 +78,46 @@ def process_branches(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     # Convert 'last_commit_date' to datetime objects
     df_branches['last_commit_date'] = pd.to_datetime(df_branches['last_commit_date'])
     return df_branches
+
+
+def process_commits(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
+    all_commits = []
+    after_cursor = None
+    has_next_page = True
+
+    while has_next_page:
+        variables.update({"first": 100, "after": after_cursor})
+        data = github_api_call(commits_query, variables, GITHUB_TOKEN)
+
+        if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'ref' in data['data']['repository'] and data['data']['repository']['ref'] and 'target' in data['data']['repository']['ref'] and data['data']['repository']['ref']['target'] and 'history' in data['data']['repository']['ref']['target']:
+            commits_data = data['data']['repository']['ref']['target']['history']['edges']
+            all_commits.extend(commits_data)
+            page_info = data['data']['repository']['ref']['target']['history']['pageInfo']
+            after_cursor = page_info['endCursor']
+            has_next_page = page_info['hasNextPage']
+        else:
+            print("Error: Could not retrieve commit data or unexpected data structure.")
+            break
+
+    print(f"Fetched {len(all_commits)} commits.")
+
+    # Create a pandas DataFrame from the collected data
+    commit_data_list = []
+
+    for commit in all_commits:
+        commit_node = commit['node']
+        commit_data = {
+            'authoredDate': commit_node['authoredDate'],
+            'messageHeadline': commit_node['messageHeadline'],
+            'additions': commit_node['additions'],
+            'deletions': commit_node['deletions'],
+            # these may be redundant
+            'author_name': commit_node['author']['name'],
+            # 'author_email': commit_node['author']['email'],
+            'author_login': commit_node['author']['user']['login'] if commit_node['author']['user'] else None
+        }
+        commit_data_list.append(commit_data)
+
+    print(f"Extracted data for {len(commit_data_list)} commits.")
+    df_commits = pd.DataFrame(commit_data_list)
+    return df_commits

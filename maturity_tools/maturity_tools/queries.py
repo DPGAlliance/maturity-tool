@@ -46,3 +46,38 @@ query($owner: String!, $repo: String!, $first_branches: Int!, $after_branches: S
   }
 }
 """
+
+commits_query = """
+query($owner: String!, $repo: String!, $branch: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    ref(qualifiedName: $branch) {
+      target {
+        ... on Commit {
+          history(first: $first, after: $after) {
+            edges {
+              node {
+                oid
+                messageHeadline
+                authoredDate
+                author {
+                  name
+                  email
+                  user {
+                    login
+                  }
+                }
+                additions
+                deletions
+              }
+            }
+            pageInfo {
+              endCursor
+              hasNextPage
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
