@@ -204,3 +204,49 @@ class CommitAnalyzer:
         self.df_commits['lines_changed'] = self.df_commits['additions'] + self.df_commits['deletions']
         code_churn_counts = self.df_commits.set_index('authoredDate').resample(freq)['lines_changed'].sum().reset_index(name='code_churn')
         return code_churn_counts
+    
+class ReleaseAnalyzer:
+    def __init__(self, df_releases):
+        """
+        Initializes the ReleaseAnalyzer with a DataFrame of releases.
+
+        Args:
+            df_releases (pd.DataFrame): DataFrame containing release data with
+                                        'created_at' and 'total_downloads' columns.
+        """
+        self.df_releases = df_releases.copy()
+        self.df_releases['created_at'] = pd.to_datetime(self.df_releases['created_at'])
+
+    def total_downloads(self):
+        """
+        Calculates the total download count across all releases.
+
+        Returns:
+            int: The total number of downloads.
+        """
+        return self.df_releases['total_downloads'].sum()
+
+    def releases_by_period(self, period='month'):
+        """
+        Aggregates the number of releases based on the specified time period.
+
+        Args:
+            period (str): The time period for aggregation ('day', 'week', 'month', 'year').
+
+        Returns:
+            pd.DataFrame: DataFrame with release counts per period.
+        """
+        if period not in ['day', 'week', 'month', 'year']:
+            raise ValueError("Period must be 'day', 'week', 'month', or 'year'.")
+
+        if period == 'day':
+            freq = 'D'
+        elif period == 'week':
+            freq = 'W'
+        elif period == 'month':
+            freq = 'ME'
+        else: # period == 'year'
+            freq = 'YE'
+
+        release_counts = self.df_releases.set_index('created_at').resample(freq).size().reset_index(name='release_count')
+        return release_counts

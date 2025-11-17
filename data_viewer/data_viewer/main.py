@@ -7,9 +7,9 @@ from dotenv import load_dotenv
 import os
 from maturity_tools.github_call import github_api_call, process_branches
 from maturity_tools.queries import repo_info_query
-from ui import display_repo_info, display_branch_results, display_commit_results
-from data import get_branches_cached, get_commits_cached
-from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer
+from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results
+from data import get_branches_cached, get_commits_cached, get_releases_cached
+from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -40,7 +40,7 @@ def main():
     branch_analyzer = BranchAnalyzer(branches_df)
     days = st.number_input("Days to look back for branch activity", min_value=1, max_value=365, value=30)
     stale, active = branch_analyzer.stale_branches(days)
-    st.markdown(f"There are :red[{stale}] stale branches, and :green[{active}] active ones. Looking at the last _{days} days.")
+    st.markdown(f"There are :red[{stale}] stale branches, and :green[{active}] active ones. Looking at the last {days} days.")
     st.divider()
 
     # This is all general stuff so far. Lets get into branch specific analysis next.
@@ -52,6 +52,11 @@ def main():
     commit_analyzer = CommitAnalyzer(commits_df)
     display_commit_results(commit_analyzer)
 
+    releases_df = get_releases_cached(owner, repo, GITHUB_TOKEN)
+    st.divider()
+    st.subheader("📦 Releases")
+    release_analyzer = ReleaseAnalyzer(releases_df)
+    display_release_results(release_analyzer)
     
 
 

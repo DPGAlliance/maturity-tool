@@ -1,7 +1,7 @@
 """This module contains functions to interact with the GitHub API."""
 import requests
 from typing import Any, Dict, Optional
-from maturity_tools.queries import branches_query, commits_query
+from maturity_tools.queries import branches_query, commits_query, releases_query
 import pandas as pd
 
 
@@ -121,3 +121,55 @@ def process_commits(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     print(f"Extracted data for {len(commit_data_list)} commits.")
     df_commits = pd.DataFrame(commit_data_list)
     return df_commits
+
+
+def process_releases(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
+    all_releases = []
+    after_cursor_releases = None
+    has_next_page_releases = True
+    variables['first_releases'] = 100  # Number of releases to fetch per page
+    variables['after_releases'] = None  # Cursor for pagination
+
+    while has_next_page_releases:
+        variables.update({"after_releases": after_cursor_releases})
+        print("Fetching releases with cursor:", after_cursor_releases) # Optional: to show progress
+        data = github_api_call(releases_query, variables, GITHUB_TOKEN)
+
+        if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'releases' in data['data']['repository']:
+            releases_data = data['data']['repository']['releases']['edges']
+            all_releases.extend(releases_data)
+            page_info_releases = data['data']['repository']['releases']['pageInfo']
+            after_cursor_releases = page_info_releases['endCursor']
+            has_next_page_releases = page_info_releases['hasNextPage']
+        else:
+            print("Error: Could not retrieve release data or unexpected data structure.")
+            print("Response data:", data)  # Debug print
+            break
+
+    print(f"Fetched {len(all_releases)} releases.")
+
+    # process 'all_releases' to extract release dates and total download counts per release
+    release_data_list = []
+    for release_edge in all_releases:
+        release_node = release_edge['node']
+        release_name = release_node['name'] if release_node['name'] else release_node['tagName'] # Use tag name if name is empty
+        created_at = release_node['createdAt']
+        tag_name = release_node['tagName']
+        total_downloads = sum(asset_edge['node']['downloadCount'] for asset_edge in release_node['releaseAssets']['edges'])
+
+        release_data_list.append({
+            'name': release_name,
+            'tag_name': tag_name,
+            'created_at': created_at,
+            'total_downloads': total_downloads
+        })
+
+    # Create a pandas DataFrame from the collected data
+    df_releases = pd.DataFrame(release_data_list)
+    print(f"Extracted data for {len(df_releases)} releases.")
+    print("Releases data preview:")
+    print(df_releases.head() if not df_releases.empty else "No releases found")
+    # Convert 'created_at' to datetime objects
+    if not df_releases.empty:
+        df_releases['created_at'] = pd.to_datetime(df_releases['created_at'])
+    return df_releases

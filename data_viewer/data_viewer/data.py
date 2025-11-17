@@ -1,4 +1,4 @@
-from maturity_tools.github_call import process_commits, process_branches
+from maturity_tools.github_call import process_commits, process_branches, process_releases
 import streamlit as st
 
 # Cache branch results until owner/repo changes
@@ -11,3 +11,8 @@ def get_branches_cached(owner, repo, token):
 def get_commits_cached(owner, repo, branch, token):
     variables = {"owner": owner, "repo": repo, "branch": branch}
     return process_commits(variables, token)
+
+@st.cache_data(show_spinner=True)
+def get_releases_cached(owner, repo, token):
+    variables = {"owner": owner, "repo": repo}
+    return process_releases(variables, token)

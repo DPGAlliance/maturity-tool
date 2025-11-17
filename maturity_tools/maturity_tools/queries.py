@@ -81,3 +81,32 @@ query($owner: String!, $repo: String!, $branch: String!, $first: Int!, $after: S
   }
 }
 """
+
+releases_query = """
+query($owner: String!, $repo: String!, $first_releases: Int!, $after_releases: String) {
+  repository(owner: $owner, name: $repo) {
+    releases(first: $first_releases, after: $after_releases, orderBy: {field: CREATED_AT, direction: DESC}) {
+      totalCount
+      edges {
+        node {
+          name
+          createdAt
+          tagName
+          releaseAssets(first: 10) {
+            edges {
+              node {
+                name
+                downloadCount
+              }
+            }
+          }
+        }
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+}
+"""

@@ -184,3 +184,180 @@ def display_commit_results(commit_analyzer):
     # Raw data expander
     with st.expander("🔍 View Raw Commit Data"):
         st.dataframe(commit_analyzer.df_commits, width='stretch')
+
+def display_release_results(release_analyzer):
+    """Display comprehensive release analysis results."""
+    
+    # Check if we have releases to analyze
+    if release_analyzer.df_releases.empty:
+        st.warning("No releases found for this repository.")
+        return
+    
+    # Basic release metrics
+    st.markdown("### 📦 Release Metrics")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    # Total releases
+    total_releases = len(release_analyzer.df_releases)
+    with col1:
+        with st.container(border=True):
+            st.markdown("**Total Releases**")
+            st.markdown(f"## {total_releases}")
+    
+    # Total downloads
+    total_downloads = release_analyzer.total_downloads()
+    with col2:
+        with st.container(border=True):
+            st.markdown("**Total Downloads**")
+            if total_downloads >= 1000000:
+                downloads_display = f"{total_downloads/1000000:.1f}M"
+                downloads_color = "green"
+            elif total_downloads >= 1000:
+                downloads_display = f"{total_downloads/1000:.1f}K"
+                downloads_color = "blue"
+            else:
+                downloads_display = str(total_downloads)
+                downloads_color = "orange"
+            st.markdown(f"## :{downloads_color}[{downloads_display}]")
+    
+    # Latest release info
+    latest_release = release_analyzer.df_releases.sort_values('created_at').iloc[-1]
+    days_since_latest = (pd.to_datetime('now', utc=True) - latest_release['created_at']).days
+    
+    with col3:
+        with st.container(border=True):
+            st.markdown("**Days Since Latest**")
+            if days_since_latest <= 30:
+                release_freshness_color = "green"
+            elif days_since_latest <= 90:
+                release_freshness_color = "orange"
+            else:
+                release_freshness_color = "red"
+            st.markdown(f"## :{release_freshness_color}[{days_since_latest}]")
+    
+    # Average downloads per release
+    avg_downloads = total_downloads / total_releases if total_releases > 0 else 0
+    with col4:
+        with st.container(border=True):
+            st.markdown("**Avg Downloads/Release**")
+            if avg_downloads >= 10000:
+                avg_color = "green"
+            elif avg_downloads >= 1000:
+                avg_color = "blue"
+            else:
+                avg_color = "orange"
+            if avg_downloads >= 1000:
+                avg_display = f"{avg_downloads/1000:.1f}K"
+            else:
+                avg_display = f"{avg_downloads:.0f}"
+            st.markdown(f"## :{avg_color}[{avg_display}]")
+    
+    # Release timeline analysis
+    st.subheader("📅 Release Timeline")
+    
+    # Period selection for release frequency
+    period = st.selectbox("View releases by:", ["month", "year"], index=0, key="release_period")
+    
+    try:
+        release_freq = release_analyzer.releases_by_period(period)
+        
+        if not release_freq.empty:
+            # Display release frequency chart
+            st.line_chart(
+                data=release_freq.set_index('created_at')['release_count'],
+                height=300
+            )
+            
+            # Show release activity stats
+            recent_data = release_freq.tail(10)
+            avg_releases = recent_data['release_count'].mean()
+            max_releases = recent_data['release_count'].max()
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                with st.container(border=True):
+                    st.markdown(f"**Avg Releases/_{period}_**")
+                    st.markdown(f"## {avg_releases:.1f}")
+            with col2:
+                with st.container(border=True):
+                    st.markdown(f"**Peak Releases/_{period}_**")
+                    st.markdown(f"## {max_releases}")
+            
+        else:
+            st.info("No release frequency data available.")
+            
+    except Exception as e:
+        st.error(f"Error calculating release frequency: {str(e)}")
+    
+    # Release details
+    st.subheader("🏷️ Recent Releases")
+    
+    try:
+        # Get recent releases (last 10)
+        recent_releases = (release_analyzer.df_releases
+                          .sort_values('created_at', ascending=False)
+                          .head(10)
+                          .copy())
+        
+        # Format the data for display
+        if not recent_releases.empty:
+            # Add formatted dates and download counts
+            recent_releases['Release Date'] = recent_releases['created_at'].dt.strftime('%Y-%m-%d')
+            recent_releases['Downloads'] = recent_releases['total_downloads'].apply(
+                lambda x: f"{x/1000000:.1f}M" if x >= 1000000 else f"{x/1000:.1f}K" if x >= 1000 else str(x)
+            )
+            
+            # Select columns for display
+            display_cols = ['tag_name', 'Release Date', 'Downloads']
+            if 'name' in recent_releases.columns:
+                display_cols.insert(1, 'name')
+            
+            # Display as a nice table
+            st.dataframe(
+                recent_releases[display_cols].rename(columns={
+                    'tag_name': 'Tag',
+                    'name': 'Name'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No recent releases to display.")
+            
+    except Exception as e:
+        st.error(f"Error displaying recent releases: {str(e)}")
+    
+    # Release patterns analysis
+    with st.expander("📈 Release Patterns Analysis"):
+        try:
+            # Time between releases
+            if len(release_analyzer.df_releases) > 1:
+                release_analyzer.df_releases_sorted = release_analyzer.df_releases.sort_values('created_at')
+                time_diffs = release_analyzer.df_releases_sorted['created_at'].diff().dropna()
+                avg_time_between = time_diffs.mean().days
+                
+                col1, col2 = st.columns(2)
+                col1.metric("Average Days Between Releases", f"{avg_time_between:.0f}")
+                
+                # Release consistency
+                std_time_between = time_diffs.std().days
+                if std_time_between < avg_time_between * 0.5:
+                    consistency = "High"
+                    consistency_color = "🟢"
+                elif std_time_between < avg_time_between:
+                    consistency = "Medium"
+                    consistency_color = "🟡"
+                else:
+                    consistency = "Low"
+                    consistency_color = "🔴"
+                
+                col2.metric("Release Consistency", f"{consistency_color} {consistency}")
+            else:
+                st.info("Need at least 2 releases to analyze patterns.")
+                
+        except Exception as e:
+            st.error(f"Error analyzing release patterns: {str(e)}")
+    
+    # Raw data expander
+    with st.expander("🔍 View Raw Release Data"):
+        st.dataframe(release_analyzer.df_releases, use_container_width=True)
