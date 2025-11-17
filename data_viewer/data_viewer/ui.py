@@ -33,66 +33,78 @@ def display_commit_results(commit_analyzer):
         return
     
     # Basic commit metrics
-    st.subheader("Commit Metrics")
+    # st.markdown("### Commit Metrics")
     col1, col2, col3, col4 = st.columns(4)
     
     # Total commits
     total_commits = len(commit_analyzer.df_commits)
-    col1.metric("Total Commits", total_commits)
+    with col1:
+        with st.container(border=True):
+            st.markdown("**Total Commits**")
+            st.markdown(f"## {total_commits}")
     
     # Staleness
     days_since_last, last_commit_date = commit_analyzer.staleness()
     if days_since_last is not None:
-        if days_since_last <= 7:
-            staleness_color = "🟢"
-        elif days_since_last <= 30:
-            staleness_color = "🟡"
+        if days_since_last >= 30:
+            staleness_color = "red"
         else:
-            staleness_color = "🔴"
-        col2.metric("Days Since Last Commit", f"{staleness_color} {days_since_last}")
-        col3.metric("Last Commit Date", last_commit_date.strftime("%Y-%m-%d") if last_commit_date else "N/A")
-    
-    # Bus factor
-    bus_factor = commit_analyzer.bus_factor('commits')
-    if bus_factor <= 2:
-        bus_color = "🔴"
-    elif bus_factor <= 5:
-        bus_color = "🟡"
-    else:
-        bus_color = "🟢"
-    col4.metric("Bus Factor", f"{bus_color} {bus_factor}")
-    
+            staleness_color = "green"
+        with col2:
+            with st.container(border=True):
+                st.markdown("**Staleness**")
+                st.markdown(f"## :{staleness_color}[{days_since_last}]")
+
     # Contributor Analysis
     st.subheader("Contributor Analysis")
-    col1, col2, col3 = st.columns(3)
+    #select lines or commits
+    contrib_type_select = st.radio("Select metric type:", ('commits', 'lines'))
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    # total contributors
+    total_contributors = commit_analyzer.df_commits['author_login'].nunique()
+    with col1:
+        with st.container(border=True):
+            st.markdown("**Total Contributors**")
+            st.markdown(f"## {total_contributors}")
     
+    # Bus factor
+    bus_factor_commit = commit_analyzer.bus_factor(contrib_type_select)
+    if bus_factor_commit < 10:
+        bus_color = "red"
+    else:
+        bus_color = "green"
+    with col2:
+        with st.container(border=True):
+            st.markdown(f"**Bus Factor ({contrib_type_select})**")
+            st.markdown(f"## :{bus_color}[{bus_factor_commit}]")
+
     # New vs Core contributors
-    new_contributors, core_contributors = commit_analyzer.new_vs_core_contributors(90, 'commits')
-    col1.metric("New Contributors (90d)", f"{new_contributors}")
-    col2.metric("Core Contributors", f"{core_contributors}")
+    new_contributors, core_contributors = commit_analyzer.new_vs_core_contributors(90, contrib_type_select)
+    with col3:
+        with st.container(border=True):
+            st.markdown(f"**Contributors (90 days) ({contrib_type_select})**")
+            st.markdown(f"## New: {new_contributors}   |   Core: {core_contributors}")
     
     # Contributor diversity (HHI)
-    hhi = commit_analyzer.contributor_diversity_hhi('commits')
+    hhi = commit_analyzer.contributor_diversity_hhi(contrib_type_select)
     if hhi >= 2500:  # High concentration
-        diversity_color = "🔴"
+        diversity_color = "red"
         diversity_text = "Low"
     elif hhi >= 1500:  # Medium concentration
-        diversity_color = "🟡"
+        diversity_color = "orange"
         diversity_text = "Medium"
     else:  # Low concentration (high diversity)
-        diversity_color = "🟢"
+        diversity_color = "green"
         diversity_text = "High"
-    col3.metric("Contributor Diversity", f"{diversity_color} {diversity_text}")
-    
-    # Show HHI details in expander
-    with st.expander("Diversity Details"):
-        st.write(f"**Herfindahl-Hirschman Index (HHI):** {hhi:.2f}")
-        st.write("- **HHI < 1500:** High diversity (many contributors)")
-        st.write("- **1500 ≤ HHI < 2500:** Medium diversity")
-        st.write("- **HHI ≥ 2500:** Low diversity (few dominant contributors)")
+    with col4:
+        with st.container(border=True):
+            st.markdown(f"**Contributor Diversity ({contrib_type_select})**")
+            st.markdown(f"## :{diversity_color}[{diversity_text}] ({hhi:.0f})")
     
     # Time-based analysis
-    st.subheader("Activity Over Time")
+    st.subheader("Commit Frequency")
     
     # Commit frequency controls
     period = st.selectbox("View commits by:", ["day", "week", "month"], index=1)
@@ -162,7 +174,7 @@ def display_commit_results(commit_analyzer):
         # Display as a nice table
         st.dataframe(
             top_contributors,
-            use_container_width=True,
+            width='stretch',
             hide_index=True
         )
         
@@ -171,4 +183,4 @@ def display_commit_results(commit_analyzer):
     
     # Raw data expander
     with st.expander("🔍 View Raw Commit Data"):
-        st.dataframe(commit_analyzer.df_commits, use_container_width=True)
+        st.dataframe(commit_analyzer.df_commits, width='stretch')
