@@ -250,3 +250,182 @@ class ReleaseAnalyzer:
 
         release_counts = self.df_releases.set_index('created_at').resample(freq).size().reset_index(name='release_count')
         return release_counts
+
+
+class IssuePRAnalyzer:
+    def __init__(self, df_issues, df_prs):
+        """
+        Initializes the IssuePRAnalyzer with DataFrames of issues and pull requests.
+
+        Args:
+            df_issues (pd.DataFrame): DataFrame containing issue data.
+            df_prs (pd.DataFrame): DataFrame containing pull request data.
+        """
+        self.df_issues = df_issues.copy()
+        self.df_prs = df_prs.copy()
+
+    def time_to_first_response(self, item_type='issue'):
+        """
+        Calculates the median time to first non-author comment for issues or PRs.
+
+        Args:
+            item_type (str): 'issue' or 'pr' to specify which data to analyze.
+
+        Returns:
+            pd.Timedelta: Median time to first response.
+        """
+        if item_type == 'issue':
+            df = self.df_issues
+            created_col = 'createdAt'
+            comment_created_col = 'first_comment_createdAt'
+            author_col = 'author_login'
+            comment_author_col = 'first_comment_author'
+        elif item_type == 'pr':
+            df = self.df_prs
+            created_col = 'createdAt'
+            comment_created_col = 'first_comment_createdAt'
+            author_col = 'author_login'
+            comment_author_col = 'first_comment_author'
+        else:
+            raise ValueError("item_type must be 'issue' or 'pr'.")
+
+        # Filter for items with a first comment by a non-author
+        responded_items = df[
+            (df[comment_created_col].notna()) & 
+            (df[comment_author_col] != df[author_col])
+        ].copy()
+
+        if responded_items.empty:
+            return pd.Timedelta(seconds=0) # Return 0 timedelta if no responses
+
+        time_diff = responded_items[comment_created_col] - responded_items[created_col]
+        return time_diff.median()
+
+    def issue_closure_ratio(self, period_days=90):
+        """
+        Calculates the ratio of closed issues to opened issues within a specified period.
+
+        Args:
+            period_days (int): The number of days for the analysis period.
+
+        Returns:
+            float: Issue closure ratio.
+        """
+        end_date = pd.to_datetime('now', utc=True)
+        start_date = end_date - pd.Timedelta(days=period_days)
+
+        opened_in_period = self.df_issues[
+            (self.df_issues['createdAt'] >= start_date) & 
+            (self.df_issues['createdAt'] <= end_date)
+        ].shape[0]
+
+        closed_in_period = self.df_issues[
+            (self.df_issues['closedAt'].notna()) & 
+            (self.df_issues['closedAt'] >= start_date) & 
+            (self.df_issues['closedAt'] <= end_date)
+        ].shape[0]
+
+        if opened_in_period == 0:
+            return 0.0
+        return closed_in_period / opened_in_period
+
+    def time_to_close(self, item_type='issue'):
+        """
+        Calculates the median time to close for issues or PRs.
+
+        Args:
+            item_type (str): 'issue' or 'pr' to specify which data to analyze.
+
+        Returns:
+            pd.Timedelta: Median time to close.
+        """
+        if item_type == 'issue':
+            df = self.df_issues[self.df_issues['state'] == 'CLOSED'].copy()
+            created_col = 'createdAt'
+            closed_col = 'closedAt'
+        elif item_type == 'pr':
+            df = self.df_prs[
+                (self.df_prs['state'] == 'MERGED') | (self.df_prs['state'] == 'CLOSED')
+            ].copy()
+            created_col = 'createdAt'
+            closed_col = 'closedAt'
+        else:
+            raise ValueError("item_type must be 'issue' or 'pr'.")
+
+        if df.empty:
+            return pd.Timedelta(seconds=0)
+
+        time_diff = df[closed_col] - df[created_col]
+        return time_diff.median()
+
+    def pr_merge_time(self):
+        """
+        Calculates the median time from PR creation to merge.
+
+        Returns:
+            pd.Timedelta: Median time to merge.
+        """
+        merged_prs = self.df_prs[self.df_prs['state'] == 'MERGED'].copy()
+        if merged_prs.empty:
+            return pd.Timedelta(seconds=0)
+        
+        time_diff = merged_prs['mergedAt'] - merged_prs['createdAt']
+        return time_diff.median()
+
+    def backlog_size(self):
+        """
+        Returns the current number of open issues.
+
+        Returns:
+            int: Number of open issues.
+        """
+        return self.df_issues[self.df_issues['state'] == 'OPEN'].shape[0]
+
+    def good_first_issue_velocity(self, period_days=90):
+        """
+        Calculates the velocity of 'good first issues' being closed within a period.
+
+        Args:
+            period_days (int): The number of days for the analysis period.
+
+        Returns:
+            float: 'Good first issue' velocity.
+        """
+        end_date = pd.to_datetime('now', utc=True)
+        start_date = end_date - pd.Timedelta(days=period_days)
+
+        good_first_issues_closed = self.df_issues[
+            (self.df_issues['state'] == 'CLOSED') & 
+            (self.df_issues['labels'].apply(lambda x: 'good first issue' in [label.lower() for label in x])) & 
+            (self.df_issues['closedAt'] >= start_date) & 
+            (self.df_issues['closedAt'] <= end_date)
+        ].shape[0]
+        
+        # Velocity is count per period, so no division by days here unless specified to be rate per day
+        return good_first_issues_closed
+    
+    def open_issues_over_time(self):
+        """
+        Generates a time series of open issue counts over time.
+
+        Returns:
+            pd.Series: Time series with dates as index and open issue counts as values.
+        """
+        if self.df_issues.empty:
+            return pd.Series(dtype=int)
+
+        # Create a date range from the earliest issue creation to today
+        start_date = self.df_issues['createdAt'].min().normalize()
+        end_date = pd.to_datetime('now', utc=True).normalize()
+        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+
+        open_issue_counts = []
+
+        for single_date in date_range:
+            open_issues = self.df_issues[
+                (self.df_issues['createdAt'] <= single_date) & 
+                ((self.df_issues['closedAt'].isna()) | (self.df_issues['closedAt'] > single_date))
+            ].shape[0]
+            open_issue_counts.append(open_issues)
+
+        return pd.Series(data=open_issue_counts, index=date_range, name='open_issue_count')

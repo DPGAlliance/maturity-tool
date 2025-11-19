@@ -110,3 +110,78 @@ query($owner: String!, $repo: String!, $first_releases: Int!, $after_releases: S
   }
 }
 """
+
+issues_query = """
+query($owner: String!, $repo: String!, $first_issues: Int!, $after_issues: String) {
+  repository(owner: $owner, name: $repo) {
+    issues(first: $first_issues, after: $after_issues, states: [OPEN, CLOSED]) {
+      edges {
+        node {
+          id
+          createdAt
+          closedAt
+          state
+          author {
+            login
+          }
+          comments(first: 1) {
+            nodes {
+              author {
+                login
+              }
+              createdAt
+            }
+          }
+          labels(first: 100) {
+            nodes {
+              name
+            }
+          }
+        }
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+}
+"""
+
+pr_query = """
+query($owner: String!, $repo: String!, $first_prs: Int!, $after_prs: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(first: $first_prs, after: $after_prs, states: [OPEN, CLOSED, MERGED]) {
+      edges {
+        node {
+          id
+          createdAt
+          mergedAt
+          closedAt
+          state
+          author {
+            login
+          }
+          comments(first: 1) {
+            nodes {
+              author {
+                login
+              }
+              createdAt
+            }
+          }
+          labels(first: 100) {
+            nodes {
+              name
+            }
+          }
+        }
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+}
+"""

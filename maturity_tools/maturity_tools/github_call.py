@@ -1,7 +1,7 @@
 """This module contains functions to interact with the GitHub API."""
 import requests
 from typing import Any, Dict, Optional
-from maturity_tools.queries import branches_query, commits_query, releases_query
+from maturity_tools.queries import branches_query, commits_query, releases_query, issues_query, pr_query
 import pandas as pd
 
 
@@ -173,3 +173,98 @@ def process_releases(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     if not df_releases.empty:
         df_releases['created_at'] = pd.to_datetime(df_releases['created_at'])
     return df_releases
+
+
+def process_issues(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
+    all_issues = []
+    after_cursor_issues = None
+    has_next_page_issues = True
+    variables['first_issues'] = 100
+    variables['after_issues'] = None
+
+    while has_next_page_issues:
+        variables.update({"after_issues": after_cursor_issues})
+        data = github_api_call(issues_query, variables, GITHUB_TOKEN)
+
+        if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'issues' in data['data']['repository']:
+            issues_data = data['data']['repository']['issues']['edges']
+            all_issues.extend(issues_data)
+            page_info_issues = data['data']['repository']['issues']['pageInfo']
+            after_cursor_issues = page_info_issues['endCursor']
+            has_next_page_issues = page_info_issues['hasNextPage']
+        else:
+            print("Error: Could not retrieve issue data or unexpected data structure.")
+            break
+
+    print(f"Fetched {len(all_issues)} issues.")
+
+    # lets unpack them and create a dataframe
+    issue_data_list = []
+    for issue_edge in all_issues:
+        issue_node = issue_edge['node']
+        first_comment = None
+        first_comment_author = None
+        
+        if issue_node['comments']['nodes']:
+            first_comment = issue_node['comments']['nodes'][0]['createdAt']
+            first_comment_author = issue_node['comments']['nodes'][0]['author']['login'] if issue_node['comments']['nodes'][0]['author'] else None
+
+        labels = [label['name'] for label in issue_node['labels']['nodes']]
+
+        issue_data_list.append({
+            'id': issue_node['id'],
+            'createdAt': pd.to_datetime(issue_node['createdAt']),
+            'closedAt': pd.to_datetime(issue_node['closedAt']) if issue_node['closedAt'] else None,
+            'state': issue_node['state'],
+            'author_login': issue_node['author']['login'] if issue_node['author'] else None,
+            'first_comment_createdAt': pd.to_datetime(first_comment) if first_comment else None,
+            'first_comment_author': first_comment_author,
+            'labels': labels
+        })
+    return pd.DataFrame(issue_data_list)
+
+def process_prs(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
+    all_prs = []
+    after_cursor_prs = None
+    has_next_page_prs = True
+    variables['first_prs'] = 100
+    variables['after_prs'] = None
+
+    while has_next_page_prs:
+        variables.update({"after_prs": after_cursor_prs})
+        data = github_api_call(pr_query, variables, GITHUB_TOKEN)
+
+        if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'pullRequests' in data['data']['repository']:
+            prs_data = data['data']['repository']['pullRequests']['edges']
+            all_prs.extend(prs_data)
+            page_info_prs = data['data']['repository']['pullRequests']['pageInfo']
+            after_cursor_prs = page_info_prs['endCursor']
+            has_next_page_prs = page_info_prs['hasNextPage']
+        else:
+            print("Error: Could not retrieve PR data or unexpected data structure.")
+            break
+
+    pr_data_list = []
+    for pr_edge in all_prs:
+        pr_node = pr_edge['node']
+        first_comment_pr = None
+        first_comment_author_pr = None
+
+        if pr_node['comments']['nodes']:
+            first_comment_pr = pr_node['comments']['nodes'][0]['createdAt']
+            first_comment_author_pr = pr_node['comments']['nodes'][0]['author']['login'] if pr_node['comments']['nodes'][0]['author'] else None
+
+        labels_pr = [label['name'] for label in pr_node['labels']['nodes']]
+
+        pr_data_list.append({
+            'id': pr_node['id'],
+            'createdAt': pd.to_datetime(pr_node['createdAt']),
+            'mergedAt': pd.to_datetime(pr_node['mergedAt']) if pr_node['mergedAt'] else None,
+            'closedAt': pd.to_datetime(pr_node['closedAt']) if pr_node['closedAt'] else None,
+            'state': pr_node['state'],
+            'author_login': pr_node['author']['login'] if pr_node['author'] else None,
+            'first_comment_createdAt': pd.to_datetime(first_comment_pr) if first_comment_pr else None,
+            'first_comment_author': first_comment_author_pr,
+            'labels': labels_pr
+        })
+    return pd.DataFrame(pr_data_list)

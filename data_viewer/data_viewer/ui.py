@@ -194,7 +194,7 @@ def display_release_results(release_analyzer):
         return
     
     # Basic release metrics
-    st.markdown("### 📦 Release Metrics")
+    st.markdown("### 📦 Releases")
     col1, col2, col3, col4 = st.columns(4)
     
     # Total releases
@@ -289,75 +289,198 @@ def display_release_results(release_analyzer):
     except Exception as e:
         st.error(f"Error calculating release frequency: {str(e)}")
     
-    # Release details
-    st.subheader("🏷️ Recent Releases")
+    # Raw data expander
+    with st.expander("🔍 View Raw Release Data"):
+        st.dataframe(release_analyzer.df_releases, use_container_width=True)
+
+def display_issue_results(issue_analyzer):
+    """Display comprehensive issue and PR analysis results."""
+    st.subheader("Community Engagement")
+
+    # Check if we have issues to analyze
+    if issue_analyzer.df_issues.empty and issue_analyzer.df_prs.empty:
+        st.warning("No issues or pull requests found for this repository.")
+        return
     
-    try:
-        # Get recent releases (last 10)
-        recent_releases = (release_analyzer.df_releases
-                          .sort_values('created_at', ascending=False)
-                          .head(10)
-                          .copy())
+    # Basic metrics
+    st.markdown("### Overview")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    # Total issues
+    total_issues = len(issue_analyzer.df_issues)
+    with col1:
+        with st.container(border=True):
+            st.markdown("**Total Issues**")
+            st.markdown(f"## {total_issues}")
+    
+    # Total PRs
+    total_prs = len(issue_analyzer.df_prs)
+    with col2:
+        with st.container(border=True):
+            st.markdown("**Total PRs**")
+            st.markdown(f"## {total_prs}")
+    
+    # Open issues (backlog size)
+    open_issues = issue_analyzer.backlog_size()
+    with col3:
+        with st.container(border=True):
+            st.markdown("**Open Issues (Backlog)**")
+            if open_issues > 100:
+                backlog_color = "red"
+            elif open_issues > 50:
+                backlog_color = "orange"
+            else:
+                backlog_color = "green"
+            st.markdown(f"## :{backlog_color}[{open_issues}]")
+    
+    # Issue closure ratio
+    closure_ratio = issue_analyzer.issue_closure_ratio(90)
+    with col4:
+        with st.container(border=True):
+            st.markdown("**Issue Closure Ratio (90d)**")
+            if closure_ratio >= 0.8:
+                closure_color = "green"
+            elif closure_ratio >= 0.5:
+                closure_color = "orange"
+            else:
+                closure_color = "red"
+            st.markdown(f"## :{closure_color}[{closure_ratio:.2f}]")
+    
+    # Response & Resolution Times
+    st.subheader("⏱️ Response & Resolution Times")
+    
+    # Determine how many columns we need based on available data
+    has_issues = not issue_analyzer.df_issues.empty
+    has_prs = not issue_analyzer.df_prs.empty
+
+    if has_issues:
+        # create a timeseries line plot that show open issue count over time
+        st.markdown("#### Open Issues Over time")
+        st.line_chart(issue_analyzer.open_issues_over_time())
+    
+    if has_issues and has_prs:
+        col1, col2, col3, col4 = st.columns(4)
+    elif has_issues or has_prs:
+        col1, col2 = st.columns(2)
+    else:
+        st.info("No issues or pull requests data available for response time analysis.")
+        return
+    
+    # Time to first response - Issues (only if we have issues)
+    if has_issues:
+        time_to_response_issues = issue_analyzer.time_to_first_response('issue')
+        response_days_issues = time_to_response_issues.total_seconds() / (24 * 3600)
+        with col1:
+            with st.container(border=True):
+                st.markdown("**Time to First Response (Issues)**")
+                if response_days_issues <= 1:
+                    response_color = "green"
+                elif response_days_issues <= 7:
+                    response_color = "orange"
+                else:
+                    response_color = "red"
+                st.markdown(f"## :{response_color}[{response_days_issues:.1f}d]")
+    
+    # Time to first response - PRs (only if we have PRs)
+    if has_prs:
+        time_to_response_prs = issue_analyzer.time_to_first_response('pr')
+        response_days_prs = time_to_response_prs.total_seconds() / (24 * 3600)
+        with (col2 if has_issues else col1):
+            with st.container(border=True):
+                st.markdown("**Time to First Response (PRs)**")
+                if response_days_prs <= 1:
+                    pr_response_color = "green"
+                elif response_days_prs <= 3:
+                    pr_response_color = "orange"
+                else:
+                    pr_response_color = "red"
+                st.markdown(f"## :{pr_response_color}[{response_days_prs:.1f}d]")
+    
+    # Time to close - Issues (only if we have issues)
+    if has_issues:
+        time_to_close_issues = issue_analyzer.time_to_close('issue')
+        close_days_issues = time_to_close_issues.total_seconds() / (24 * 3600)
+        with (col3 if has_prs else col2):
+            with st.container(border=True):
+                st.markdown("**Time to Close (Issues)**")
+                if close_days_issues <= 7:
+                    close_color = "green"
+                elif close_days_issues <= 30:
+                    close_color = "orange"
+                else:
+                    close_color = "red"
+                st.markdown(f"## :{close_color}[{close_days_issues:.1f}d]")
+    
+    # Time to merge - PRs (only if we have PRs)
+    if has_prs:
+        time_to_merge = issue_analyzer.pr_merge_time()
+        merge_days = time_to_merge.total_seconds() / (24 * 3600)
+        with (col4 if has_issues else col2):
+            with st.container(border=True):
+                st.markdown("**Time to Merge (PRs)**")
+                if merge_days <= 3:
+                    merge_color = "green"
+                elif merge_days <= 14:
+                    merge_color = "orange"
+                else:
+                    merge_color = "red"
+                st.markdown(f"## :{merge_color}[{merge_days:.1f}d]")
+    
+    # Determine columns based on available data
+    if has_issues and has_prs:
+        col1, col2 = st.columns(2)
+    else:
+        col1 = st.columns(1)[0]
+    
+    # Good first issues velocity (only if we have issues)
+    if has_issues:
+        gfi_velocity = issue_analyzer.good_first_issue_velocity(90)
+        with col1:
+            with st.container(border=True):
+                st.markdown("**Good First Issues Closed (90d)**")
+                if gfi_velocity >= 10:
+                    gfi_color = "green"
+                elif gfi_velocity >= 5:
+                    gfi_color = "orange"
+                else:
+                    gfi_color = "red"
+                st.markdown(f"## :{gfi_color}[{gfi_velocity}]")
+    
+    # Issues & PRs Status Breakdown
+    st.subheader("📊 Status Breakdown")
+    
+    col1, col2 = st.columns(2)
+    
+    # Issues status breakdown
+    with col1:
+        st.markdown("**Issues Status**")
+        if not issue_analyzer.df_issues.empty:
+            issues_status = issue_analyzer.df_issues['state'].value_counts()
+            
+            # Add closed/open ratio directly to the Series
+            open_issues = issues_status.get('OPEN', 0)
+            closed_issues = issues_status.get('CLOSED', 0)
+            closed_issues_ratio = closed_issues/(closed_issues + open_issues)
+            # Add the ratio directly to the Series
+            issues_status['Closed Issues %'] = f"{closed_issues_ratio:.2f}"
+            # Convert to DataFrame for display
+            issues_status_df = issues_status.reset_index().rename(columns={'index': 'Status', 'state': 'Count'})
         
-        # Format the data for display
-        if not recent_releases.empty:
-            # Add formatted dates and download counts
-            recent_releases['Release Date'] = recent_releases['created_at'].dt.strftime('%Y-%m-%d')
-            recent_releases['Downloads'] = recent_releases['total_downloads'].apply(
-                lambda x: f"{x/1000000:.1f}M" if x >= 1000000 else f"{x/1000:.1f}K" if x >= 1000 else str(x)
-            )
-            
-            # Select columns for display
-            display_cols = ['tag_name', 'Release Date', 'Downloads']
-            if 'name' in recent_releases.columns:
-                display_cols.insert(1, 'name')
-            
-            # Display as a nice table
+        st.dataframe(
+            issues_status_df,
+            use_container_width=True,
+            hide_index=True
+        )
+    
+    # PRs status breakdown
+    with col2:
+        st.markdown("**Pull Requests Status**")
+        if not issue_analyzer.df_prs.empty:
+            prs_status = issue_analyzer.df_prs['state'].value_counts()
             st.dataframe(
-                recent_releases[display_cols].rename(columns={
-                    'tag_name': 'Tag',
-                    'name': 'Name'
-                }),
+                prs_status.reset_index().rename(columns={'index': 'Status', 'state': 'Count'}),
                 use_container_width=True,
                 hide_index=True
             )
         else:
-            st.info("No recent releases to display.")
-            
-    except Exception as e:
-        st.error(f"Error displaying recent releases: {str(e)}")
-    
-    # Release patterns analysis
-    with st.expander("📈 Release Patterns Analysis"):
-        try:
-            # Time between releases
-            if len(release_analyzer.df_releases) > 1:
-                release_analyzer.df_releases_sorted = release_analyzer.df_releases.sort_values('created_at')
-                time_diffs = release_analyzer.df_releases_sorted['created_at'].diff().dropna()
-                avg_time_between = time_diffs.mean().days
-                
-                col1, col2 = st.columns(2)
-                col1.metric("Average Days Between Releases", f"{avg_time_between:.0f}")
-                
-                # Release consistency
-                std_time_between = time_diffs.std().days
-                if std_time_between < avg_time_between * 0.5:
-                    consistency = "High"
-                    consistency_color = "🟢"
-                elif std_time_between < avg_time_between:
-                    consistency = "Medium"
-                    consistency_color = "🟡"
-                else:
-                    consistency = "Low"
-                    consistency_color = "🔴"
-                
-                col2.metric("Release Consistency", f"{consistency_color} {consistency}")
-            else:
-                st.info("Need at least 2 releases to analyze patterns.")
-                
-        except Exception as e:
-            st.error(f"Error analyzing release patterns: {str(e)}")
-    
-    # Raw data expander
-    with st.expander("🔍 View Raw Release Data"):
-        st.dataframe(release_analyzer.df_releases, use_container_width=True)
+            st.info("No pull requests data available")

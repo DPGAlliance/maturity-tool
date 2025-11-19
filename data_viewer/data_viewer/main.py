@@ -5,11 +5,11 @@ import streamlit as st
 import traceback
 from dotenv import load_dotenv
 import os
-from maturity_tools.github_call import github_api_call, process_branches
+from maturity_tools.github_call import github_api_call
 from maturity_tools.queries import repo_info_query
-from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results
-from data import get_branches_cached, get_commits_cached, get_releases_cached
-from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer
+from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results
+from data import get_branches_cached, get_commits_cached, get_releases_cached, get_issues_cached, get_prs_cached
+from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -45,19 +45,26 @@ def main():
 
     # This is all general stuff so far. Lets get into branch specific analysis next.
     default_branch = info_result.get("data", {}).get("repository", {}).get("defaultBranchRef", {}).get("name", "")
-    selected_branch = st.selectbox("Select a branch to analyze further", branches_df['branch_name'].tolist(), index=branches_df['branch_name'].tolist().index(default_branch) if default_branch in branches_df['branch_name'].tolist() else 0)
-    st.subheader(f"Commits on :green[{selected_branch}] branch")
-    commits_df = get_commits_cached(owner, repo, selected_branch, GITHUB_TOKEN)
-    # st.dataframe(commits_df)
-    commit_analyzer = CommitAnalyzer(commits_df)
-    display_commit_results(commit_analyzer)
+    # selected_branch = st.selectbox("Select a branch to analyze further", branches_df['branch_name'].tolist(), index=branches_df['branch_name'].tolist().index(default_branch) if default_branch in branches_df['branch_name'].tolist() else 0)
+    # st.subheader(f"Commits on :green[{selected_branch}] branch")
+    # commits_df = get_commits_cached(owner, repo, selected_branch, GITHUB_TOKEN)
+    # # st.dataframe(commits_df)
+    # commit_analyzer = CommitAnalyzer(commits_df)
+    # display_commit_results(commit_analyzer)
 
+    # releases
     releases_df = get_releases_cached(owner, repo, GITHUB_TOKEN)
     st.divider()
-    st.subheader("📦 Releases")
     release_analyzer = ReleaseAnalyzer(releases_df)
     display_release_results(release_analyzer)
-    
+
+    # issues and PRs (Community Engagement)
+    st.divider()
+    issues_df = get_issues_cached(owner, repo, GITHUB_TOKEN)
+    prs_df = get_prs_cached(owner, repo, GITHUB_TOKEN)
+    issue_analyzer = IssuePRAnalyzer(issues_df, prs_df)
+    display_issue_results(issue_analyzer)
+
 
 
 
