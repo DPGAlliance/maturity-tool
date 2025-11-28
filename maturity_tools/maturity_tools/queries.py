@@ -48,12 +48,12 @@ query($owner: String!, $repo: String!, $first_branches: Int!, $after_branches: S
 """
 
 commits_query = """
-query($owner: String!, $repo: String!, $branch: String!, $first: Int!, $after: String) {
+query($owner: String!, $repo: String!, $branch: String!, $first: Int!, $after: String, $since: GitTimestamp) {
   repository(owner: $owner, name: $repo) {
     ref(qualifiedName: $branch) {
       target {
         ... on Commit {
-          history(first: $first, after: $after) {
+          history(first: $first, after: $after, since: $since) {
             edges {
               node {
                 oid
@@ -112,12 +112,13 @@ query($owner: String!, $repo: String!, $first_releases: Int!, $after_releases: S
 """
 
 issues_query = """
-query($owner: String!, $repo: String!, $first_issues: Int!, $after_issues: String) {
+query($owner: String!, $repo: String!, $first_issues: Int!, $after_issues: String, $since: DateTime) {
   repository(owner: $owner, name: $repo) {
-    issues(first: $first_issues, after: $after_issues, states: [OPEN, CLOSED]) {
+    issues(first: $first_issues, after: $after_issues, states: [OPEN, CLOSED], filterBy: {since: $since}) {
       edges {
         node {
           id
+          title
           createdAt
           closedAt
           state
@@ -149,12 +150,13 @@ query($owner: String!, $repo: String!, $first_issues: Int!, $after_issues: Strin
 """
 
 pr_query = """
-query($owner: String!, $repo: String!, $first_prs: Int!, $after_prs: String) {
+query($owner: String!, $repo: String!, $first_prs: Int!, $after_prs: String, $since: DateTime) {
   repository(owner: $owner, name: $repo) {
-    pullRequests(first: $first_prs, after: $after_prs, states: [OPEN, CLOSED, MERGED]) {
+    pullRequests(first: $first_prs, after: $after_prs, states: [OPEN, CLOSED, MERGED], orderBy: {field: CREATED_AT, direction: DESC}) {
       edges {
         node {
           id
+          title
           createdAt
           mergedAt
           closedAt

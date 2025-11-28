@@ -194,7 +194,6 @@ def display_release_results(release_analyzer):
         return
     
     # Basic release metrics
-    st.markdown("### 📦 Releases")
     col1, col2, col3, col4 = st.columns(4)
     
     # Total releases

@@ -84,6 +84,7 @@ def process_commits(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     all_commits = []
     after_cursor = None
     has_next_page = True
+    # Note: since parameter is already in variables if provided for time filtering
 
     while has_next_page:
         variables.update({"first": 100, "after": after_cursor})
@@ -181,6 +182,7 @@ def process_issues(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     has_next_page_issues = True
     variables['first_issues'] = 100
     variables['after_issues'] = None
+    # Note: since parameter is already in variables if provided for time filtering
 
     while has_next_page_issues:
         variables.update({"after_issues": after_cursor_issues})
@@ -229,6 +231,7 @@ def process_prs(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     has_next_page_prs = True
     variables['first_prs'] = 100
     variables['after_prs'] = None
+    # Note: since parameter is already in variables if provided for time filtering
 
     while has_next_page_prs:
         variables.update({"after_prs": after_cursor_prs})

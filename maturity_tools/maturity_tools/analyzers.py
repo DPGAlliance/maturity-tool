@@ -9,6 +9,8 @@ class BranchAnalyzer:
             df_branches (pd.DataFrame): DataFrame containing branch data with
                                         'last_commit_date' column.
         """
+        if df_branches.empty:
+            raise ValueError("Cannot initialize BranchAnalyzer with an empty DataFrame")
         self.df_branches = df_branches.copy()
         self.df_branches['last_commit_date'] = pd.to_datetime(self.df_branches['last_commit_date'])
 
@@ -41,6 +43,8 @@ class CommitAnalyzer:
             df_commits (pd.DataFrame): DataFrame containing commit data with
                                        'authoredDate' column.
         """
+        if df_commits.empty:
+            raise ValueError("Cannot initialize CommitAnalyzer with an empty DataFrame")
         self.df_commits = df_commits.copy()
         self.df_commits['authoredDate'] = pd.to_datetime(self.df_commits['authoredDate'])
 
@@ -214,6 +218,8 @@ class ReleaseAnalyzer:
             df_releases (pd.DataFrame): DataFrame containing release data with
                                         'created_at' and 'total_downloads' columns.
         """
+        if df_releases.empty:
+            raise ValueError("Cannot initialize ReleaseAnalyzer with an empty DataFrame")
         self.df_releases = df_releases.copy()
         self.df_releases['created_at'] = pd.to_datetime(self.df_releases['created_at'])
 
@@ -261,6 +267,8 @@ class IssuePRAnalyzer:
             df_issues (pd.DataFrame): DataFrame containing issue data.
             df_prs (pd.DataFrame): DataFrame containing pull request data.
         """
+        if df_issues.empty and df_prs.empty:
+            raise ValueError("Cannot initialize IssuePRAnalyzer with both issues and PRs DataFrames empty")
         self.df_issues = df_issues.copy()
         self.df_prs = df_prs.copy()
 
