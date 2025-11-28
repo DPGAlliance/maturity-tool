@@ -4,11 +4,21 @@
 import streamlit as st
 import traceback
 import os
+import sys
 from datetime import datetime, timedelta
+
+# Handle imports for both local development and Streamlit Cloud deployment
+current_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+
+# Always add paths to ensure imports work
+sys.path.insert(0, current_dir)  # For ui, data modules
+sys.path.insert(0, repo_root)     # For maturity_tools package
+
 from maturity_tools.github_call import github_api_call
 from maturity_tools.queries import repo_info_query
-from data_viewer.data_viewer.ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results
-from data_viewer.data_viewer.data import get_branches_cached, get_commits_cached, get_releases_cached, get_issues_cached, get_prs_cached
+from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results
+from data import get_branches_cached, get_commits_cached, get_releases_cached, get_issues_cached, get_prs_cached
 from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
 
 def calculate_since_date(time_range):
