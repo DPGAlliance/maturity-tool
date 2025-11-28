@@ -10,10 +10,12 @@ from datetime import datetime, timedelta
 # Handle imports for both local development and Streamlit Cloud deployment
 current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+maturity_tools_dir = os.path.join(repo_root, 'maturity_tools')
 
-# Always add paths to ensure imports work
-sys.path.insert(0, current_dir)  # For ui, data modules
-sys.path.insert(0, repo_root)     # For maturity_tools package
+# Add all necessary paths for imports
+sys.path.insert(0, current_dir)           # For ui, data modules
+sys.path.insert(0, repo_root)             # For top-level imports
+sys.path.insert(0, maturity_tools_dir)    # For maturity_tools package
 
 from maturity_tools.github_call import github_api_call
 from maturity_tools.queries import repo_info_query
