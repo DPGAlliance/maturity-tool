@@ -1,4 +1,3 @@
-
 """This is the main module of the data_viewer streamlit app."""
 
 import streamlit as st
@@ -22,6 +21,30 @@ from maturity_tools.queries import repo_info_query
 from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results
 from data import get_branches_cached, get_commits_cached, get_releases_cached, get_issues_cached, get_prs_cached
 from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
+
+# Import distinguished owners
+from distinguished_owners import DISTINGUISHED_OWNERS
+
+import requests
+
+def fetch_repos_for_owner(owner, token):
+    """Fetch public repos for a given owner using GitHub REST API."""
+    headers = {"Authorization": f"token {token}"}
+    repos = []
+    page = 1
+    while True:
+        url = f"https://api.github.com/users/{owner}/repos?per_page=100&page={page}"
+        resp = requests.get(url, headers=headers)
+        if resp.status_code != 200:
+            break
+        data = resp.json()
+        if not data:
+            break
+        repos.extend([repo["name"] for repo in data])
+        if len(data) < 100:
+            break
+        page += 1
+    return repos
 
 def calculate_since_date(time_range):
     """Calculate the 'since' date based on selected time range."""
@@ -55,10 +78,33 @@ def main():
     col_owner, col_repo, col_time = st.columns([2, 2, 2])
     
     with col_owner:
-        owner = st.text_input("Repository Owner", value="egovernments")
+        # Provide suggestions via selectbox but allow a free-text owner by choosing "Other"
+        owner_choice = st.selectbox(
+            "Repository Owner (pick suggestion or choose Other to type)",
+            options=list(DISTINGUISHED_OWNERS) + ["Other (type custom owner...)"],
+            index=0,
+            key="owner_select",
+            help="Pick from suggestions or choose Other to type a custom owner."
+        )
+        if owner_choice and owner_choice.startswith("Other"):
+            owner = st.text_input(
+                "Custom owner (type a GitHub user or org)",
+                value="",
+                key="owner_custom",
+                help="Type the organization or username you want to analyze."
+            )
+        else:
+            owner = owner_choice
     
     with col_repo:
-        repo = st.text_input("Repository Name", value="DIGIT-OSS")
+        repo_list = []
+        if owner:
+            repo_list = fetch_repos_for_owner(owner, GITHUB_TOKEN)
+        repo = st.selectbox(
+            "Repository Name",
+            repo_list if repo_list else ["DIGIT-OSS"],
+            index=0 if repo_list else 0
+        )
     
     with col_time:
         time_range = st.selectbox(

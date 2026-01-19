@@ -1,1 +1,2 @@
-Coming soon...
+
+`streamlit run data_viewer/app.py`
