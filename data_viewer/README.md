@@ -1,2 +1,4 @@
+# Data Viewer
 
-`streamlit run data_viewer/app.py`
+Commands to run the app:
+- `streamlit run data_viewer/main.py`

@@ -169,12 +169,16 @@ def main():
     selected_branch = st.selectbox("Select a branch to analyze further", branches_df['branch_name'].tolist(), index=branches_df['branch_name'].tolist().index(default_branch) if default_branch in branches_df['branch_name'].tolist() else 0)
     st.subheader(f"Commits on :green[{selected_branch}] branch")
     commits_df = get_commits_cached(owner, repo, selected_branch, GITHUB_TOKEN, since_date)
+    if since_date:
+        commits_full_df = get_commits_cached(owner, repo, selected_branch, GITHUB_TOKEN)
+    else:
+        commits_full_df = commits_df
     # if the commits_df is empty, show a warning
     if commits_df.empty:
         st.warning("No commits found for the selected branch and time range.")
     else:
         # st.dataframe(commits_df)
-        commit_analyzer = CommitAnalyzer(commits_df)
+        commit_analyzer = CommitAnalyzer(commits_df, df_commits_full=commits_full_df)
         display_commit_results(commit_analyzer)
 
 

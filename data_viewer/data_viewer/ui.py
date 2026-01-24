@@ -85,7 +85,7 @@ def display_commit_results(commit_analyzer):
     with col3:
         with st.container(border=True):
             st.markdown(f"**Contributors (90 days) ({contrib_type_select})**")
-            st.markdown(f"## New: {new_contributors}   |   Core: {core_contributors}")
+            st.markdown(f"## New: {new_contributors}   |   Active Core: {core_contributors}")
     
     # Contributor diversity (HHI)
     hhi = commit_analyzer.contributor_diversity_hhi(contrib_type_select)
