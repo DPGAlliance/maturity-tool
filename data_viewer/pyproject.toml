@@ -9,8 +9,12 @@ readme = "README.md"
 python = "^3.11"
 streamlit = "^1.51.0"
 maturity-tools = {path = "../maturity_tools", develop = true}
-dotenv = "^0.9.9"
+python-dotenv = "^1.0.1"
+sqlalchemy = "^2.0.46"
 
+
+[tool.poetry.group.dev.dependencies]
+mkdocs = "^1.6.1"
 
 [build-system]
 requires = ["poetry-core"]

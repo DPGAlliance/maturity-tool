@@ -4,7 +4,9 @@ import streamlit as st
 import traceback
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+from dotenv import load_dotenv
 
 # Handle imports for both local development and Streamlit Cloud deployment
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,8 +21,10 @@ sys.path.insert(0, maturity_tools_dir)    # For maturity_tools package
 from maturity_tools.github_call import github_api_call
 from maturity_tools.queries import repo_info_query
 from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results
-from data import get_branches_cached, get_commits_cached, get_releases_cached, get_issues_cached, get_prs_cached
+from data import get_branches_data, get_commits_data, get_releases_data, get_issues_data, get_prs_data
 from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
+from storage.cache import get_or_create_repo
+from storage.db import get_session, init_db
 
 # Import distinguished owners
 from distinguished_owners import DISTINGUISHED_OWNERS
@@ -48,7 +52,7 @@ def fetch_repos_for_owner(owner, token):
 
 def calculate_since_date(time_range):
     """Calculate the 'since' date based on selected time range."""
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     
     if time_range == "6 months":
         return now - timedelta(days=180)
@@ -62,6 +66,7 @@ def calculate_since_date(time_range):
         return None
 
 def main():
+    load_dotenv()
     st.set_page_config(layout="wide")
     st.title("Maturity Data Viewer")
     st.write("This app is for showcasing the currently available data from the maturity_tools package.")
@@ -122,6 +127,22 @@ def main():
         st.info(f"📅 Analyzing data from **{since_date.strftime('%B %d, %Y')}** onwards ({time_range})")
     else:
         st.info("📅 Analyzing **all available data** (this may take longer for large repositories)")
+
+    use_db_cache_default = os.getenv("USE_DB_CACHE", "false").lower() in {"1", "true", "yes"}
+    use_db_cache = st.toggle(
+        "Use DB cache",
+        value=use_db_cache_default,
+        help="Use the local database cache (requires DATABASE_URL or default sqlite).",
+    )
+    session = None
+    repo_obj = None
+    if use_db_cache:
+        try:
+            init_db()
+            session = get_session()
+        except Exception as exc:
+            st.warning(f"DB cache unavailable: {exc}")
+            use_db_cache = False
     
     info_query_variables = {
         "owner": owner,
@@ -129,11 +150,27 @@ def main():
     }
 
     info_result = github_api_call(repo_info_query, info_query_variables, GITHUB_TOKEN)
+    if use_db_cache and session:
+        default_branch = (
+            info_result.get("data", {})
+            .get("repository", {})
+            .get("defaultBranchRef", {})
+            .get("name")
+        )
+        repo_obj = get_or_create_repo(session, owner, repo, default_branch)
     display_repo_info(info_result)
     st.divider()
 
     # releases
-    releases_df = get_releases_cached(owner, repo, GITHUB_TOKEN, since_date)
+    releases_df = get_releases_data(
+        owner,
+        repo,
+        GITHUB_TOKEN,
+        since_date,
+        use_db_cache=use_db_cache,
+        session=session,
+        repo_id=repo_obj.id if repo_obj else None,
+    )
     if releases_df.empty:
         st.warning("No releases found for the selected time range.")
     else:
@@ -144,17 +181,40 @@ def main():
     # issues and PRs (Community Engagement)
     st.divider()
     st.subheader("Issues & Pull Requests")
-    issues_df = get_issues_cached(owner, repo, GITHUB_TOKEN, since_date)
+    issues_df = get_issues_data(
+        owner,
+        repo,
+        GITHUB_TOKEN,
+        since_date,
+        use_db_cache=use_db_cache,
+        session=session,
+        repo_id=repo_obj.id if repo_obj else None,
+    )
     if issues_df.empty:
         st.warning("No issues found for the selected time range.")
     else:
-        prs_df = get_prs_cached(owner, repo, GITHUB_TOKEN, since_date)
+        prs_df = get_prs_data(
+            owner,
+            repo,
+            GITHUB_TOKEN,
+            since_date,
+            use_db_cache=use_db_cache,
+            session=session,
+            repo_id=repo_obj.id if repo_obj else None,
+        )
         issue_analyzer = IssuePRAnalyzer(issues_df, prs_df)
         display_issue_results(issue_analyzer)
 
     # branches
     st.subheader("Branches")
-    branches_df = get_branches_cached(owner, repo, GITHUB_TOKEN)
+    branches_df = get_branches_data(
+        owner,
+        repo,
+        GITHUB_TOKEN,
+        use_db_cache=use_db_cache,
+        session=session,
+        repo_id=repo_obj.id if repo_obj else None,
+    )
     display_branch_results(branches_df)
     # we could pass the df fisrt to the BranchAnalyzer
     # and mark in the UI df which ones are stale/active
@@ -168,11 +228,16 @@ def main():
     default_branch = info_result.get("data", {}).get("repository", {}).get("defaultBranchRef", {}).get("name", "")
     selected_branch = st.selectbox("Select a branch to analyze further", branches_df['branch_name'].tolist(), index=branches_df['branch_name'].tolist().index(default_branch) if default_branch in branches_df['branch_name'].tolist() else 0)
     st.subheader(f"Commits on :green[{selected_branch}] branch")
-    commits_df = get_commits_cached(owner, repo, selected_branch, GITHUB_TOKEN, since_date)
-    if since_date:
-        commits_full_df = get_commits_cached(owner, repo, selected_branch, GITHUB_TOKEN)
-    else:
-        commits_full_df = commits_df
+    commits_df, commits_full_df = get_commits_data(
+        owner,
+        repo,
+        selected_branch,
+        GITHUB_TOKEN,
+        since_date,
+        use_db_cache=use_db_cache,
+        session=session,
+        repo_id=repo_obj.id if repo_obj else None,
+    )
     # if the commits_df is empty, show a warning
     if commits_df.empty:
         st.warning("No commits found for the selected branch and time range.")

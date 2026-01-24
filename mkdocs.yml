@@ -1,0 +1,8 @@
+site_name: Maturity Tool
+nav:
+  - Home: index.md
+  - Storage: storage.md
+  - Scripts: scripts.md
+  - Roadmap: roadmap.md
+theme:
+  name: mkdocs

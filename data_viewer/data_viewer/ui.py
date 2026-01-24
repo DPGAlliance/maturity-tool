@@ -290,7 +290,7 @@ def display_release_results(release_analyzer):
     
     # Raw data expander
     with st.expander("🔍 View Raw Release Data"):
-        st.dataframe(release_analyzer.df_releases, use_container_width=True)
+        st.dataframe(release_analyzer.df_releases, width="stretch")
 
 def display_issue_results(issue_analyzer):
     """Display comprehensive issue and PR analysis results."""
@@ -455,21 +455,27 @@ def display_issue_results(issue_analyzer):
         st.markdown("**Issues Status**")
         if not issue_analyzer.df_issues.empty:
             issues_status = issue_analyzer.df_issues['state'].value_counts()
-            
-            # Add closed/open ratio directly to the Series
+
             open_issues = issues_status.get('OPEN', 0)
             closed_issues = issues_status.get('CLOSED', 0)
-            closed_issues_ratio = closed_issues/(closed_issues + open_issues)
-            # Add the ratio directly to the Series
-            issues_status['Closed Issues %'] = f"{closed_issues_ratio:.2f}"
-            # Convert to DataFrame for display
+            total_issues = closed_issues + open_issues
+            closed_issues_ratio = closed_issues / total_issues if total_issues else 0
+
             issues_status_df = issues_status.reset_index().rename(columns={'index': 'Status', 'state': 'Count'})
-        
-        st.dataframe(
-            issues_status_df,
-            use_container_width=True,
-            hide_index=True
-        )
+            ratio_df = pd.DataFrame([
+                {"Status": "Closed Issues %", "Count": round(closed_issues_ratio, 2)}
+            ])
+            issues_status_df = pd.concat([issues_status_df, ratio_df], ignore_index=True)
+            issues_status_df["Status"] = issues_status_df["Status"].astype(str)
+            issues_status_df["Count"] = pd.to_numeric(issues_status_df["Count"], errors="coerce")
+
+            st.dataframe(
+                issues_status_df,
+                width="stretch",
+                hide_index=True
+            )
+        else:
+            st.info("No issue data available")
     
     # PRs status breakdown
     with col2:
@@ -478,7 +484,7 @@ def display_issue_results(issue_analyzer):
             prs_status = issue_analyzer.df_prs['state'].value_counts()
             st.dataframe(
                 prs_status.reset_index().rename(columns={'index': 'Status', 'state': 'Count'}),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
         else:
