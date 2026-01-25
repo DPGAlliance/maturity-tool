@@ -11,6 +11,8 @@ streamlit = "^1.51.0"
 maturity-tools = {path = "../maturity_tools", develop = true}
 python-dotenv = "^1.0.1"
 sqlalchemy = "^2.0.46"
+fastapi = "^0.111.0"
+uvicorn = "^0.30.0"
 
 
 [tool.poetry.group.dev.dependencies]

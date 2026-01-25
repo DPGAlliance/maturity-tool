@@ -2,6 +2,7 @@ site_name: Maturity Tool
 nav:
   - Home: index.md
   - Storage: storage.md
+  - API: api.md
   - Scripts: scripts.md
   - Roadmap: roadmap.md
 theme:

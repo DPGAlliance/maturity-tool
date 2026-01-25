@@ -28,6 +28,7 @@ class Repo(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     runs = relationship("Run", back_populates="repo", cascade="all, delete-orphan")
+    summaries = relationship("Summary", back_populates="repo", cascade="all, delete-orphan")
 
     __table_args__ = (UniqueConstraint("owner", "name", name="uq_repo_owner_name"),)
 
@@ -148,3 +149,20 @@ class Metric(Base):
     run = relationship("Run", back_populates="metrics")
 
     __table_args__ = (UniqueConstraint("run_id", "scope", "name", name="uq_metric_run_scope_name"),)
+
+
+class Summary(Base):
+    __tablename__ = "summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id"))
+    owner: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary_scope: Mapped[str] = mapped_column(String(20), nullable=False)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("runs.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    model: Mapped[str | None] = mapped_column(String(200))
+    prompt_version: Mapped[str | None] = mapped_column(String(100))
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[dict | list | None] = mapped_column(json_type())
+
+    repo = relationship("Repo", back_populates="summaries")

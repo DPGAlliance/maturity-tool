@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "maturity-storage"
+version = "0.1.0"
+description = "Storage layer for maturity tool"
+authors = ["DPG Alliance"]
+packages = [
+    { include = "storage", from = ".." },
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+sqlalchemy = "^2.0.46"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

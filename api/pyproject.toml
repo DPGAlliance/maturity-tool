@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "maturity-api"
+version = "0.1.0"
+description = "API for serving maturity metrics and summaries"
+authors = ["DPG Alliance"]
+packages = [
+    { include = "api", from = ".." },
+    { include = "storage", from = ".." },
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.111.0"
+uvicorn = "^0.30.0"
+python-dotenv = "^1.0.1"
+sqlalchemy = "^2.0.46"
+requests = "^2.32.5"
+
+[tool.poetry.group.dev.dependencies]
+mkdocs = "^1.6.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -15,6 +15,7 @@ They will both have their own README files.
 ### Docs
 - MkDocs site lives in `docs/` with config in `mkdocs.yml`.
 - Storage/cache docs: `docs/storage.md`.
+- API docs: `docs/api.md`.
 
 
 ### Notes

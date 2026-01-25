@@ -6,6 +6,8 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
 from maturity_tools.analyzers import CommitAnalyzer, IssuePRAnalyzer, ReleaseAnalyzer
 from maturity_tools.github_call import (
     github_api_call,
@@ -108,7 +110,19 @@ def issues_to_df(issues):
                 "labels": issue.labels or [],
             }
         )
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return df.reindex(
+        columns=[
+            "id",
+            "createdAt",
+            "closedAt",
+            "state",
+            "author_login",
+            "first_comment_createdAt",
+            "first_comment_author",
+            "labels",
+        ]
+    )
 
 
 def prs_to_df(prs):
@@ -127,7 +141,20 @@ def prs_to_df(prs):
                 "labels": pr.labels or [],
             }
         )
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return df.reindex(
+        columns=[
+            "id",
+            "createdAt",
+            "mergedAt",
+            "closedAt",
+            "state",
+            "author_login",
+            "first_comment_createdAt",
+            "first_comment_author",
+            "labels",
+        ]
+    )
 
 
 def releases_to_df(releases):
@@ -141,7 +168,8 @@ def releases_to_df(releases):
                 "total_downloads": release.total_downloads,
             }
         )
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return df.reindex(columns=["name", "tag_name", "created_at", "total_downloads"])
 
 
 def branches_to_df(branches):
@@ -154,7 +182,24 @@ def branches_to_df(branches):
                 "last_commit_date": branch.last_commit_date,
             }
         )
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return df.reindex(columns=["branch_name", "total_commits", "last_commit_date"])
+
+
+def normalize_since_date(since_date):
+    if since_date is None:
+        return None
+    timestamp = pd.to_datetime(since_date, utc=True, errors="coerce")
+    if pd.isna(timestamp):
+        return None
+    return timestamp
+
+
+def normalize_datetime_columns(df, columns):
+    for col in columns:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
+    return df
 
 
 def compute_commit_metrics(session, run_id, commit_analyzer, contribution_type="commits"):
@@ -310,6 +355,12 @@ def collect_for_repo(
             token,
         )
 
+        branches_df = normalize_datetime_columns(branches_df, ["last_commit_date"])
+        commits_df_full = normalize_datetime_columns(commits_df_full, ["authoredDate"])
+        issues_df = normalize_datetime_columns(issues_df, ["createdAt", "closedAt", "first_comment_createdAt"])
+        prs_df = normalize_datetime_columns(prs_df, ["createdAt", "mergedAt", "closedAt", "first_comment_createdAt"])
+        releases_df = normalize_datetime_columns(releases_df, ["created_at"])
+
         upsert_branches(session, repo_obj.id, branches_df.to_dict("records"))
         upsert_commits(session, repo_obj.id, commits_df_full.to_dict("records"))
         upsert_issues(session, repo_obj.id, issues_df.to_dict("records"))
@@ -319,17 +370,18 @@ def collect_for_repo(
         for entity in ENTITY_TYPES:
             record_fetch(session, repo_obj.id, entity)
     else:
-        branches_df = branches_to_df(get_cached_branches(session, repo_obj.id))
-        commits_df_full = commits_to_df(get_cached_commits(session, repo_obj.id))
-        issues_df = issues_to_df(get_cached_issues(session, repo_obj.id))
-        prs_df = prs_to_df(get_cached_prs(session, repo_obj.id))
-        releases_df = releases_to_df(get_cached_releases(session, repo_obj.id))
+        branches_df = normalize_datetime_columns(branches_to_df(get_cached_branches(session, repo_obj.id)), ["last_commit_date"])
+        commits_df_full = normalize_datetime_columns(commits_to_df(get_cached_commits(session, repo_obj.id)), ["authoredDate"])
+        issues_df = normalize_datetime_columns(issues_to_df(get_cached_issues(session, repo_obj.id)), ["createdAt", "closedAt", "first_comment_createdAt"])
+        prs_df = normalize_datetime_columns(prs_to_df(get_cached_prs(session, repo_obj.id)), ["createdAt", "mergedAt", "closedAt", "first_comment_createdAt"])
+        releases_df = normalize_datetime_columns(releases_to_df(get_cached_releases(session, repo_obj.id)), ["created_at"])
 
-    if since_date:
-        commits_df_recent = commits_df_full[commits_df_full["authoredDate"] >= since_date]
-        issues_df_recent = issues_df[issues_df["createdAt"] >= since_date]
-        prs_df_recent = prs_df[prs_df["createdAt"] >= since_date]
-        releases_df_recent = releases_df[releases_df["created_at"] >= since_date]
+    since_ts = normalize_since_date(since_date)
+    if since_ts is not None:
+        commits_df_recent = commits_df_full[commits_df_full["authoredDate"] >= since_ts]
+        issues_df_recent = issues_df[issues_df["createdAt"] >= since_ts]
+        prs_df_recent = prs_df[prs_df["createdAt"] >= since_ts]
+        releases_df_recent = releases_df[releases_df["created_at"] >= since_ts]
     else:
         commits_df_recent = commits_df_full
         issues_df_recent = issues_df
@@ -387,7 +439,7 @@ def parse_args():
 
 
 def main():
-    load_dotenv()
+    load_dotenv(os.path.join(repo_root, ".env"))
     args = parse_args()
     token = os.getenv("GITHUB_TOKEN")
     if not token:
