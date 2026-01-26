@@ -108,6 +108,7 @@ def process_commits(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     for commit in all_commits:
         commit_node = commit['node']
         commit_data = {
+            'oid': commit_node['oid'],
             'authoredDate': commit_node['authoredDate'],
             'messageHeadline': commit_node['messageHeadline'],
             'additions': commit_node['additions'],
