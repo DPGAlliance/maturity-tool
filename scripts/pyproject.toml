@@ -13,6 +13,7 @@ python-dotenv = "^1.0.1"
 sqlalchemy = "^2.0.46"
 maturity-tools = {path = "../maturity_tools"}
 maturity-storage = {path = "../storage", develop = true}
+openai = "^1.40.0"
 
 [build-system]
 requires = ["poetry-core"]

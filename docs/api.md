@@ -45,6 +45,10 @@ Latest metrics for each repo in the org.
 
 `GET /orgs/{owner}/summaries?limit=20&offset=0`
 
+`POST /repos/{owner}/{repo}/summary`
+
+`POST /orgs/{owner}/summary`
+
 ## Response shape (nested metrics)
 ```json
 {

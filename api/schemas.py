@@ -41,3 +41,11 @@ class SummaryOut(BaseModel):
     prompt_version: Optional[str] = None
     summary_text: str
     metadata_json: Optional[Any] = None
+
+
+class SummaryIn(BaseModel):
+    summary_text: str
+    model: Optional[str] = None
+    prompt_version: Optional[str] = None
+    run_id: Optional[int] = None
+    metadata_json: Optional[Any] = None

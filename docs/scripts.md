@@ -43,3 +43,24 @@ poetry run python test_api.py --owner <org> --repo <name>
 ### Notes
 - Uses `API_KEY` from `.env` and sends `Authorization: Bearer <API_KEY>`.
 - Continues after errors and reports per-endpoint status.
+
+## `scripts/summarize.py`
+Generates LLM summaries and stores them via the API.
+
+### Usage
+```bash
+poetry run python summarize.py --repo <owner>/<repo>
+poetry run python summarize.py --owner <owner>
+```
+
+### Options
+- `--force` to override drift/age checks
+- `--history` number of runs in time series (default: 5)
+- `--max-age-days` to refresh older summaries (default: 30)
+- `--model` (default: `gpt-4o-mini`)
+- `--base-url` (default: `http://localhost:8000`)
+
+### Env
+- `OPENAI_API_KEY`
+- `API_KEY`
+- `GITHUB_TOKEN` (for repo descriptions)
