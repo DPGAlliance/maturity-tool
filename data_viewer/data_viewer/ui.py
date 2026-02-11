@@ -2,6 +2,24 @@ import streamlit as st
 import pandas as pd
 
 
+def display_summary(summary, missing_message=None):
+    if summary is None:
+        if missing_message:
+            st.info(missing_message)
+        return
+
+    st.markdown(summary.summary_text)
+    metadata_parts = []
+    if summary.created_at is not None:
+        metadata_parts.append(f"Created: {summary.created_at:%Y-%m-%d %H:%M UTC}")
+    if summary.model:
+        metadata_parts.append(f"Model: {summary.model}")
+    if summary.prompt_version:
+        metadata_parts.append(f"Prompt: {summary.prompt_version}")
+    if metadata_parts:
+        st.caption(" | ".join(metadata_parts))
+
+
 def display_repo_info(result):
     #parse metrics from result
     repo = result.get("data", {}).get("repository", {})

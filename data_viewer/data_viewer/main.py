@@ -20,8 +20,8 @@ sys.path.insert(0, maturity_tools_dir)    # For maturity_tools package
 
 from maturity_tools.github_call import github_api_call
 from maturity_tools.queries import repo_info_query
-from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results
-from data import get_branches_data, get_commits_data, get_releases_data, get_issues_data, get_prs_data
+from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results, display_summary
+from data import get_branches_data, get_commits_data, get_releases_data, get_issues_data, get_prs_data, get_repo_summary_db, get_org_summary_db
 from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
 from storage.cache import get_or_create_repo
 from storage.db import get_session, init_db
@@ -160,6 +160,15 @@ def main():
         repo_obj = get_or_create_repo(session, owner, repo, default_branch)
     display_repo_info(info_result)
     st.divider()
+
+    if use_db_cache and session:
+        org_summary = get_org_summary_db(session, owner)
+        if org_summary:
+            display_summary(org_summary)
+
+        repo_summary = get_repo_summary_db(session, owner, repo)
+        display_summary(repo_summary, missing_message="No summary yet.")
+        st.divider()
 
     # releases
     releases_df = get_releases_data(

@@ -17,6 +17,8 @@ from storage.cache import (
     upsert_prs,
     upsert_releases,
 )
+from storage.models import Repo, Summary
+from sqlalchemy import select
 
 # Cache branch results until owner/repo changes (ignore since_date for branches)
 @st.cache_data(show_spinner=True)
@@ -359,4 +361,36 @@ def get_prs_data(
             if since_ts is not None:
                 prs_df = prs_df[prs_df["createdAt"] >= since_ts]
 
-        return prs_df
+    return prs_df
+
+
+def get_repo_summary_db(session, owner: str, repo: str):
+    repo_obj = session.execute(
+        select(Repo).where(Repo.owner == owner, Repo.name == repo)
+    ).scalar_one_or_none()
+    if not repo_obj:
+        return None
+
+    summary = (
+        session.execute(
+            select(Summary)
+            .where(Summary.repo_id == repo_obj.id, Summary.summary_scope == "repo")
+            .order_by(Summary.created_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+    return summary
+
+
+def get_org_summary_db(session, owner: str):
+    summary = (
+        session.execute(
+            select(Summary)
+            .where(Summary.owner == owner, Summary.summary_scope == "org")
+            .order_by(Summary.created_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+    return summary
