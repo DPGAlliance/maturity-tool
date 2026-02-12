@@ -35,7 +35,7 @@ class BranchAnalyzer:
     
 
 class CommitAnalyzer:
-    def __init__(self, df_commits):
+    def __init__(self, df_commits, df_commits_full=None):
         """
         Initializes the CommitAnalyzer with a DataFrame of commits.
 
@@ -47,6 +47,10 @@ class CommitAnalyzer:
             raise ValueError("Cannot initialize CommitAnalyzer with an empty DataFrame")
         self.df_commits = df_commits.copy()
         self.df_commits['authoredDate'] = pd.to_datetime(self.df_commits['authoredDate'])
+        self.df_commits_full = None
+        if df_commits_full is not None and not df_commits_full.empty:
+            self.df_commits_full = df_commits_full.copy()
+            self.df_commits_full['authoredDate'] = pd.to_datetime(self.df_commits_full['authoredDate'])
 
 
     def commit_frequency(self, period='day'):
@@ -144,25 +148,28 @@ class CommitAnalyzer:
 
     def new_vs_core_contributors(self, period_days=90, contribution_type='commits'):
         """
-        Identifies new and core contributors within a specified period.
+        Identifies new contributors and active core contributors within a specified period.
 
         Args:
             period_days (int): The number of days for the "new contributor" period.
             contribution_type (str): Type of contribution to consider for bus factor ('commits' or 'lines').
 
         Returns:
-            tuple: A tuple containing the count of new contributors and core contributors.
+            tuple: A tuple containing the count of new contributors and active core contributors.
         """
         if contribution_type not in ['commits', 'lines']:
             raise ValueError("contribution_type must be 'commits' or 'lines'.")
 
-        # Identify core contributors (based on bus factor)
+        recent_commits = self.df_commits
+        full_commits = self.df_commits_full if self.df_commits_full is not None else self.df_commits
+
+        # Identify core contributors (based on bus factor) using full history
         if contribution_type == 'commits':
-            contributions = self.df_commits['author_login'].value_counts().reset_index()
+            contributions = full_commits['author_login'].value_counts().reset_index()
             contributions.columns = ['author_login', 'count']
         else: # contribution_type == 'lines'
-            self.df_commits['lines_changed'] = self.df_commits['additions'] + self.df_commits['deletions']
-            contributions = self.df_commits.groupby('author_login')['lines_changed'].sum().reset_index()
+            full_commits['lines_changed'] = full_commits['additions'] + full_commits['deletions']
+            contributions = full_commits.groupby('author_login')['lines_changed'].sum().reset_index()
             contributions.columns = ['author_login', 'count']
 
         contributions = contributions.sort_values(by='count', ascending=False)
@@ -172,18 +179,21 @@ class CommitAnalyzer:
         core_contributors = core_contributors_df['author_login'].tolist()
 
         # Identify new contributors within the period
-        latest_date = self.df_commits['authoredDate'].max()
+        latest_date = recent_commits['authoredDate'].max()
         cutoff_date = latest_date - pd.Timedelta(days=period_days)
 
         new_contributors = set()
-        all_contributors_before_period = set(self.df_commits[self.df_commits['authoredDate'] < cutoff_date]['author_login'].unique())
+        all_contributors_before_period = set(full_commits[full_commits['authoredDate'] < cutoff_date]['author_login'].unique())
 
-        for index, row in self.df_commits[self.df_commits['authoredDate'] >= cutoff_date].iterrows():
+        recent_contributors = set()
+        for index, row in recent_commits[recent_commits['authoredDate'] >= cutoff_date].iterrows():
             author = row['author_login']
+            recent_contributors.add(author)
             if author not in all_contributors_before_period:
                 new_contributors.add(author)
 
-        return len(new_contributors), len(core_contributors)
+        active_core_contributors = set(core_contributors).intersection(recent_contributors)
+        return len(new_contributors), len(active_core_contributors)
 
     def code_churn(self, period='day'):
         """

@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "maturity-scripts"
+version = "0.1.0"
+description = "Scripts for cache refresh and API testing"
+authors = ["DPG Alliance"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pandas = "^2.0.0"
+requests = "^2.25.0"
+python-dotenv = "^1.0.1"
+sqlalchemy = "^2.0.46"
+maturity-tools = {path = "../maturity_tools"}
+maturity-storage = {path = "../storage", develop = true}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

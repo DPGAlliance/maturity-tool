@@ -7,6 +7,16 @@ They are separate to allow maturity_tools to be used as a dependency in other pr
 
 They will both have their own README files.
 
+### Storage (new)
+- Local cache + metrics snapshots live under `storage/` using SQLite by default.
+- Configure `DATABASE_URL` for Postgres later (SQLAlchemy + Alembic).
+- Refresh cache/metrics: `python scripts/refresh_cache.py --owner <org>`
+
+### Docs
+- MkDocs site lives in `docs/` with config in `mkdocs.yml`.
+- Storage/cache docs: `docs/storage.md`.
+- API docs: `docs/api.md`.
+
 
 ### Notes
 - we have some repetitions that should be abstracted. (asap)
