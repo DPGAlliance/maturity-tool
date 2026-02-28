@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "maturity-api"
+name = "dpg_butler_api"
 version = "0.1.0"
 description = "API for serving maturity metrics and summaries"
 authors = ["DPG Alliance"]

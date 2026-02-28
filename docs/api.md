@@ -13,7 +13,8 @@ Set `API_KEY` in `.env`.
 
 ## Run locally
 ```bash
-uvicorn dpg_butler_api.main:app --reload
+poetry -C dpg_butler_api install
+poetry -C dpg_butler_api run python -m uvicorn dpg_butler_api.main:app --reload
 ```
 
 ## Endpoints

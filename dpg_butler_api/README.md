@@ -1,7 +1,13 @@
 start api by:
 
 ```bash
-    uvicorn dpg_butler_api.main:app --reload
+    # from repo root (recommended)
+    cd ..
+    poetry -C dpg_butler_api install
+    poetry -C dpg_butler_api run python -m uvicorn dpg_butler_api.main:app --reload
+
+    # or, if you want to run it while your cwd is dpg_butler_api/
+    poetry run python -m uvicorn dpg_butler_api.main:app --reload --app-dir ..
 ```
 
 .env should speicify API_KEY variable.
