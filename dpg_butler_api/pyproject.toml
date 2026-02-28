@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "API for serving maturity metrics and summaries"
 authors = ["DPG Alliance"]
 packages = [
-    { include = "api", from = ".." },
+    { include = "dpg_butler_api", from = ".." },
     { include = "storage", from = ".." },
 ]
 

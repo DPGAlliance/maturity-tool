@@ -1,9 +1,9 @@
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
-from api.routes.metrics import router as metrics_router
-from api.routes.repos import router as repos_router
-from api.routes.summaries import router as summaries_router
+from dpg_butler_api.routes.metrics import router as metrics_router
+from dpg_butler_api.routes.repos import router as repos_router
+from dpg_butler_api.routes.summaries import router as summaries_router
 from storage.db import init_db
 
 

@@ -13,7 +13,7 @@ Set `API_KEY` in `.env`.
 
 ## Run locally
 ```bash
-uvicorn api.main:app --reload
+uvicorn dpg_butler_api.main:app --reload
 ```
 
 ## Endpoints

@@ -1,7 +1,7 @@
 start api by:
 
 ```bash
-    uvicorn api.main:app --reload
+    uvicorn dpg_butler_api.main:app --reload
 ```
 
 .env should speicify API_KEY variable.

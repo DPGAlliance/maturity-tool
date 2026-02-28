@@ -3,8 +3,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 
-from api.deps import get_db_session, require_api_key
-from api.schemas import RepoOut
+from dpg_butler_api.deps import get_db_session, require_api_key
+from dpg_butler_api.schemas import RepoOut
 from storage.models import Repo
 
 

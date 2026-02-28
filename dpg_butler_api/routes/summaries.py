@@ -3,8 +3,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 
-from api.deps import get_db_session, require_api_key
-from api.schemas import SummaryIn, SummaryOut
+from dpg_butler_api.deps import get_db_session, require_api_key
+from dpg_butler_api.schemas import SummaryIn, SummaryOut
 from storage.models import Repo, Summary
 
 

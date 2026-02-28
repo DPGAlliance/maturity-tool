@@ -3,12 +3,12 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 
-from api.deps import get_db_session, require_api_key
-from api.schemas import MetricsHistoryOut, MetricsOut, RunOut
+from dpg_butler_api.deps import get_db_session, require_api_key
+from dpg_butler_api.schemas import MetricsHistoryOut, MetricsOut, RunOut
 from storage.models import Metric, Repo, Run
 import logging
 
-logger = logging.getLogger("dpg_butler.api")
+logger = logging.getLogger("dpg_butler_api")
 if not logger.handlers:
     logger.setLevel(logging.INFO)
     _handler = logging.StreamHandler()
