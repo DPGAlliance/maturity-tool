@@ -1,4 +1,6 @@
 import pandas as pd
+from datetime import datetime, timedelta, timezone
+
 
 class BranchAnalyzer:
     def __init__(self, df_branches):
@@ -159,6 +161,7 @@ class CommitAnalyzer:
         """
         if contribution_type not in ['commits', 'lines']:
             raise ValueError("contribution_type must be 'commits' or 'lines'.")
+        print(f"Calculating new vs core contributors with contribution_type='{contribution_type}' and period_days={period_days}")
 
         recent_commits = self.df_commits
         full_commits = self.df_commits_full if self.df_commits_full is not None else self.df_commits
@@ -179,12 +182,12 @@ class CommitAnalyzer:
         core_contributors = core_contributors_df['author_login'].tolist()
 
         # Identify new contributors within the period
-        latest_date = recent_commits['authoredDate'].max()
-        cutoff_date = latest_date - pd.Timedelta(days=period_days)
-
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=period_days)
+        cutoff_ts = pd.to_datetime(cutoff_date, utc=True)
+        all_contributors_before_period = set(
+            full_commits[full_commits['authoredDate'] < cutoff_ts]['author_login'].unique()
+        )
         new_contributors = set()
-        all_contributors_before_period = set(full_commits[full_commits['authoredDate'] < cutoff_date]['author_login'].unique())
-
         recent_contributors = set()
         for index, row in recent_commits[recent_commits['authoredDate'] >= cutoff_date].iterrows():
             author = row['author_login']
@@ -193,6 +196,8 @@ class CommitAnalyzer:
                 new_contributors.add(author)
 
         active_core_contributors = set(core_contributors).intersection(recent_contributors)
+        print(f"New contributors in the last {period_days} days: {new_contributors}")
+        print(f"Active core contributors in the last {period_days} days: {active_core_contributors}")
         return len(new_contributors), len(active_core_contributors)
 
     def code_churn(self, period='day'):

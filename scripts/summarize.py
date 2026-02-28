@@ -134,23 +134,6 @@ def get_org_latest_summary(session: requests.Session, base_url: str, owner: str)
     return None
 
 
-
-
-
-# def parse_dt(value: Optional[str]) -> Optional[datetime]:
-#     "WHER IS THIS NEEDED."
-#     if not value:
-#         return None
-#     try:
-#         return datetime.fromisoformat(value.replace("Z", "+00:00"))
-#     except Exception:
-#         return None
-
-
-
-
-
-
 def flatten_metrics(metrics: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     flat = {}
     for scope, entries in metrics.items():
@@ -292,7 +275,6 @@ def summarize_repo(
 
     print(f"\----------- \nLatest metrics for {owner}/{repo}: {latest_metrics}")
     print(f"\------   ***_____  ----- \nHistory for {owner}/{repo}: {history}")
-    print(f"\------   ***_____  ----- \nFlattened history metrics for {owner}/{repo}: {[flatten_metrics(entry) for entry in history.get('runs', [])]}")
     print(f"\------   ***_____lkajsdlfkjalskdj lkjasdf  afsdlkja  ----- \n")
 
     latest_run_id = latest_metrics.get("run", {}).get("id")

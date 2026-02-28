@@ -37,6 +37,16 @@ from storage.cache import (
 from storage.db import get_session, init_db
 from storage.metrics import add_metric
 
+import logging
+logger = logging.getLogger("refresh_cache")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    _formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
+    _handler.setFormatter(_formatter)
+    logger.addHandler(_handler)
+
 try:
     from data_viewer.data_viewer.distinguished_owners import DISTINGUISHED_OWNERS
 except ImportError:
@@ -457,6 +467,7 @@ def main():
     for owner in owners:
         repos = [args.repo] if args.repo else fetch_repos_for_owner(owner, token)
         for repo in repos:
+            logger.info(f"Processing {owner}/{repo} with time range '{args.time_range}' (since: {since_date}, full_history: {args.full_history}, force_refresh: {args.force_refresh})")
             collect_for_repo(
                 session=session,
                 owner=owner,
