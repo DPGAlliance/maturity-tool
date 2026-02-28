@@ -18,5 +18,5 @@ You can test the api by:
 To load something into the cache database:
 
 ```bash
-    python scripts/refresh_cache.py --owner egovernments --repo DIGIT-OSS
+    python ../scripts/refresh_cache.py --owner egovernments --repo DIGIT-OSS
 ```

@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -34,6 +35,16 @@ DRIFT_THRESHOLDS = {
     "total_downloads": {"type": "rel", "value": 0.1, "abs": 100},
 }
 
+LOGGER = logging.getLogger("summarizer")
+if not LOGGER.handlers:
+    LOGGER.setLevel(logging.INFO)
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    _formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
+    _handler.setFormatter(_formatter)
+    LOGGER.addHandler(_handler)
+
+
 
 def load_prompt(path: str) -> Tuple[str, Optional[str]]:
     with open(path, "r", encoding="utf-8") as handle:
@@ -64,13 +75,24 @@ def post_json(session: requests.Session, url: str, payload: dict) -> Any:
     return resp.json()
 
 
+
+
+
+
+
 def normalize_time_range(value: Optional[str]) -> str:
+    "DUDE. THIS IS NOT NEEDED."
     if not value:
         return "all"
     lowered = value.lower().strip()
     if lowered in {"all", "all time", "all-time"}:
         return "all"
     return lowered
+
+
+
+
+
 
 
 def select_all_time_run(metrics_history: dict, latest_metrics: dict) -> dict:
@@ -111,13 +133,21 @@ def get_org_latest_summary(session: requests.Session, base_url: str, owner: str)
     return None
 
 
+
+
+
 def parse_dt(value: Optional[str]) -> Optional[datetime]:
+    "WHER IS THIS NEEDED."
     if not value:
         return None
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except Exception:
         return None
+
+
+
+
 
 
 def flatten_metrics(metrics: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
@@ -202,30 +232,20 @@ def fetch_repo_description(owner: str, repo: str, token: Optional[str]) -> dict:
     }
 
 
-def load_overrides() -> dict:
-    path = os.path.join(PROMPTS_DIR, "repo_overrides.json")
-    if not os.path.exists(path):
-        return {}
-    with open(path, "r", encoding="utf-8") as handle:
-        return json.load(handle)
-
-
 def build_repo_payload(
     owner: str,
     repo: str,
     latest_metrics: dict,
     history: dict,
     description: dict,
-    overrides: dict,
 ):
     repo_key = f"{owner}/{repo}"
-    override = overrides.get(repo_key, {})
     return {
         "repo": repo_key,
         "run": latest_metrics.get("run"),
         "metrics": latest_metrics.get("metrics"),
         "metrics_history": history.get("runs", []),
-        "description": {**description, **override},
+        "description": {**description},
     }
 
 
@@ -261,7 +281,6 @@ def summarize_repo(
     max_age_days: int,
     force: bool,
     github_token: Optional[str],
-    overrides: dict,
 ) -> Optional[str]:
     latest_metrics = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics")
     history = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics/history?limit={history_limit}")
@@ -285,12 +304,12 @@ def summarize_repo(
         max_age_days,
     )
     if not should_write:
-        print(f"[SKIP] {owner}/{repo}: {', '.join(reasons)}")
+        LOGGER.info("[SKIP] %s/%s: %s", owner, repo, ", ".join(reasons))
         return None
 
     prompt, prompt_version = load_prompt(prompt_path)
     description = fetch_repo_description(owner, repo, github_token)
-    payload = build_repo_payload(owner, repo, latest_metrics, history, description, overrides)
+    payload = build_repo_payload(owner, repo, latest_metrics, history, description)
     summary_text = call_openai(client, model, prompt, payload)
 
     post_json(
@@ -307,7 +326,7 @@ def summarize_repo(
             },
         },
     )
-    print(f"[OK] {owner}/{repo}: {', '.join(reasons)}")
+    LOGGER.info("[OK] %s/%s: %s", owner, repo, ", ".join(reasons))
     return summary_text
 
 
@@ -337,7 +356,7 @@ def summarize_org(
         max_age_days,
     )
     if not should_write:
-        print(f"[SKIP] org {owner}: {', '.join(reasons)}")
+        LOGGER.info("[SKIP] org %s: %s", owner, ", ".join(reasons))
         return None
 
     prompt, prompt_version = load_prompt(prompt_path)
@@ -358,7 +377,7 @@ def summarize_org(
             },
         },
     )
-    print(f"[OK] org {owner}: {', '.join(reasons)}")
+    LOGGER.info("[OK] org %s: %s", owner, ", ".join(reasons))
     return summary_text
 
 
@@ -374,9 +393,26 @@ def parse_args():
     return parser.parse_args()
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def main():
     load_dotenv(os.path.join(REPO_ROOT, ".env"))
     args = parse_args()
+
+    # get api keys and validate
     api_key = os.getenv("API_KEY")
     if not api_key:
         raise SystemExit("API_KEY is required in .env")
@@ -385,7 +421,6 @@ def main():
         raise SystemExit("OPENAI_API_KEY is required in .env")
 
     github_token = os.getenv("GITHUB_TOKEN")
-    overrides = load_overrides()
 
     session = requests.Session()
     session.headers.update(api_headers(api_key))
@@ -408,7 +443,6 @@ def main():
             args.max_age_days,
             args.force,
             github_token,
-            overrides,
         )
         return
 
@@ -427,7 +461,6 @@ def main():
                 args.max_age_days,
                 args.force,
                 github_token,
-                overrides,
             )
         summarize_org(
             session,
