@@ -77,37 +77,6 @@ def post_json(session: requests.Session, url: str, payload: dict) -> Any:
 
 
 
-
-
-
-
-def normalize_time_range(value: Optional[str]) -> str:
-    "DUDE. THIS IS NOT NEEDED."
-    if not value:
-        return "all"
-    lowered = value.lower().strip()
-    if lowered in {"all", "all time", "all-time"}:
-        return "all"
-    return lowered
-
-
-
-
-
-
-
-def select_all_time_run(metrics_history: dict, latest_metrics: dict) -> dict:
-    run = latest_metrics.get("run", {})
-    if normalize_time_range(run.get("time_range")) == "all":
-        return latest_metrics
-
-    for entry in metrics_history.get("runs", []):
-        if normalize_time_range(entry.get("run", {}).get("time_range")) == "all":
-            return entry
-
-    return latest_metrics
-
-
 def get_latest_summary(session: requests.Session, base_url: str, owner: str, repo: str) -> Optional[dict]:
     try:
         summaries = get_json(
@@ -271,7 +240,6 @@ def summarize_repo(
 ) -> Optional[str]:
     latest_metrics = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics")
     history = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics/history?limit={history_limit}")
-    latest_metrics = select_all_time_run(history, latest_metrics)
 
     print(f"\----------- \nLatest metrics for {owner}/{repo}: {latest_metrics}")
     print(f"\------   ***_____  ----- \nHistory for {owner}/{repo}: {history}")

@@ -82,8 +82,6 @@ def get_repo_metrics(
         run=RunOut(
             id=run.id,
             run_started_at=run.run_started_at,
-            time_range=run.time_range,
-            since_date=run.since_date,
         ),
         metrics=_metrics_by_scope(metrics),
     )
@@ -125,8 +123,6 @@ def get_repo_metrics_history(
                 run=RunOut(
                     id=run.id,
                     run_started_at=run.run_started_at,
-                    time_range=run.time_range,
-                    since_date=run.since_date,
                 ),
                 metrics=_metrics_by_scope(metrics_by_run.get(run.id, [])),
             )
@@ -158,8 +154,6 @@ def get_org_metrics(
                 run=RunOut(
                     id=run.id,
                     run_started_at=run.run_started_at,
-                    time_range=run.time_range,
-                    since_date=run.since_date,
                 ),
                 metrics=_metrics_by_scope(metrics),
             )

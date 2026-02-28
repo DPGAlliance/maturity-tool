@@ -1,5 +1,4 @@
 import argparse
-from datetime import datetime, timedelta, timezone
 import os
 
 import pandas as pd
@@ -73,21 +72,6 @@ def fetch_repos_for_owner(owner: str, token: str) -> list[str]:
             break
         page += 1
     return repos
-
-
-def calculate_since_date(time_range: str | None):
-    if not time_range or time_range.lower() == "all":
-        return None
-    now = datetime.now(timezone.utc)
-    if time_range == "6 months":
-        return now - timedelta(days=180)
-    if time_range == "1 year":
-        return now - timedelta(days=365)
-    if time_range == "2 years":
-        return now - timedelta(days=730)
-    if time_range == "3 years":
-        return now - timedelta(days=1095)
-    return None
 
 
 def commits_to_df(commits):
@@ -194,15 +178,6 @@ def branches_to_df(branches):
         )
     df = pd.DataFrame(rows)
     return df.reindex(columns=["branch_name", "total_commits", "last_commit_date"])
-
-
-def normalize_since_date(since_date):
-    if since_date is None:
-        return None
-    timestamp = pd.to_datetime(since_date, utc=True, errors="coerce")
-    if pd.isna(timestamp):
-        return None
-    return timestamp
 
 
 def normalize_datetime_columns(df, columns):
@@ -321,9 +296,6 @@ def collect_for_repo(
     owner,
     repo,
     token,
-    time_range,
-    since_date,
-    full_history,
     force_refresh,
 ):
     info_result = github_api_call(
@@ -345,25 +317,13 @@ def collect_for_repo(
     needs_refresh = force_refresh or not all(cache_fresh.values())
 
     variables = {"owner": owner, "repo": repo, "branch": default_branch}
-    since_variables = variables.copy()
-    if since_date:
-        since_variables["since"] = since_date.isoformat()
 
     if needs_refresh:
         branches_df = process_branches({"owner": owner, "repo": repo}, token)
         commits_df_full = process_commits(variables, token)
-        issues_df = process_issues(
-            since_variables if not full_history else {"owner": owner, "repo": repo},
-            token,
-        )
-        prs_df = process_prs(
-            since_variables if not full_history else {"owner": owner, "repo": repo},
-            token,
-        )
-        releases_df = process_releases(
-            since_variables if not full_history else {"owner": owner, "repo": repo},
-            token,
-        )
+        issues_df = process_issues({"owner": owner, "repo": repo}, token)
+        prs_df = process_prs({"owner": owner, "repo": repo}, token)
+        releases_df = process_releases({"owner": owner, "repo": repo}, token)
 
         branches_df = normalize_datetime_columns(branches_df, ["last_commit_date"])
         commits_df_full = normalize_datetime_columns(commits_df_full, ["authoredDate"])
@@ -386,23 +346,14 @@ def collect_for_repo(
         prs_df = normalize_datetime_columns(prs_to_df(get_cached_prs(session, repo_obj.id)), ["createdAt", "mergedAt", "closedAt", "first_comment_createdAt"])
         releases_df = normalize_datetime_columns(releases_to_df(get_cached_releases(session, repo_obj.id)), ["created_at"])
 
-    since_ts = normalize_since_date(since_date)
-    if since_ts is not None:
-        commits_df_recent = commits_df_full[commits_df_full["authoredDate"] >= since_ts]
-        issues_df_recent = issues_df[issues_df["createdAt"] >= since_ts]
-        prs_df_recent = prs_df[prs_df["createdAt"] >= since_ts]
-        releases_df_recent = releases_df[releases_df["created_at"] >= since_ts]
-    else:
-        commits_df_recent = commits_df_full
-        issues_df_recent = issues_df
-        prs_df_recent = prs_df
-        releases_df_recent = releases_df
+    commits_df_recent = commits_df_full
+    issues_df_recent = issues_df
+    prs_df_recent = prs_df
+    releases_df_recent = releases_df
 
     run = create_run(
         session=session,
         repo_id=repo_obj.id,
-        time_range=time_range,
-        since_date=since_date,
         source="scheduled",
         notes="cache refresh" if needs_refresh else "cache reuse",
     )
@@ -428,19 +379,6 @@ def parse_args():
     parser.add_argument("--owner", help="GitHub owner/org to refresh")
     parser.add_argument("--repo", help="Specific repo name to refresh")
     parser.add_argument(
-        "--time-range",
-        default="6 months",
-        choices=["6 months", "1 year", "2 years", "3 years", "all"],
-        help="Time range for metrics computation",
-    )
-    parser.add_argument(
-        "--no-full-history",
-        action="store_false",
-        dest="full_history",
-        help="Limit raw entity fetches to the selected time range",
-    )
-    parser.set_defaults(full_history=True)
-    parser.add_argument(
         "--force-refresh",
         action="store_true",
         help="Refresh even if cache is fresh",
@@ -462,20 +400,17 @@ def main():
     if not owners:
         raise SystemExit("No owners provided and DISTINGUISHED_OWNERS is empty")
 
-    since_date = calculate_since_date(args.time_range)
-
     for owner in owners:
         repos = [args.repo] if args.repo else fetch_repos_for_owner(owner, token)
         for repo in repos:
-            logger.info(f"Processing {owner}/{repo} with time range '{args.time_range}' (since: {since_date}, full_history: {args.full_history}, force_refresh: {args.force_refresh})")
+            logger.info(
+                f"Processing {owner}/{repo} (force_refresh: {args.force_refresh})"
+            )
             collect_for_repo(
                 session=session,
                 owner=owner,
                 repo=repo,
                 token=token,
-                time_range=args.time_range,
-                since_date=since_date,
-                full_history=args.full_history,
                 force_refresh=args.force_refresh,
             )
 

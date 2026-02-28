@@ -13,8 +13,6 @@ class RepoOut(BaseModel):
 class RunOut(BaseModel):
     id: int
     run_started_at: datetime
-    time_range: Optional[str] = None
-    since_date: Optional[datetime] = None
 
 
 class MetricsOut(BaseModel):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 import pandas as pd
@@ -36,15 +36,11 @@ def get_or_create_repo(session, owner: str, name: str, default_branch: str | Non
 def create_run(
     session,
     repo_id: int,
-    time_range: str | None,
-    since_date: datetime | None,
     source: str | None,
     notes: str | None = None,
 ) -> Run:
     run = Run(
         repo_id=repo_id,
-        time_range=time_range,
-        since_date=since_date,
         source=source,
         notes=notes,
     )
@@ -62,7 +58,7 @@ def is_cache_fresh(session, repo_id: int, entity_type: str, max_age_days: int = 
     ).scalar_one_or_none()
     if not fetch_log:
         return False
-    threshold = datetime.utcnow() - timedelta(days=max_age_days)
+    threshold = datetime.now(timezone.utc) - timedelta(days=max_age_days)
     return fetch_log.fetched_at >= threshold
 
 
@@ -74,7 +70,7 @@ def record_fetch(session, repo_id: int, entity_type: str) -> None:
         )
     ).scalar_one_or_none()
     if fetch_log:
-        fetch_log.fetched_at = datetime.utcnow()
+        fetch_log.fetched_at = datetime.now(timezone.utc)
         session.add(fetch_log)
     else:
         session.add(FetchLog(repo_id=repo_id, entity_type=entity_type))
@@ -226,11 +222,8 @@ def upsert_prs(session, repo_id: int, prs: Iterable[dict]) -> None:
     _upsert_all(session, rows, PullRequest, ("repo_id", "github_id"))
 
 
-def get_cached_commits(session, repo_id: int, since_date=None):
-    query = select(Commit).where(Commit.repo_id == repo_id)
-    if since_date is not None:
-        query = query.where(Commit.authored_date >= since_date)
-    return session.execute(query).scalars().all()
+def get_cached_commits(session, repo_id: int):
+    return session.execute(select(Commit).where(Commit.repo_id == repo_id)).scalars().all()
 
 
 def get_cached_branches(session, repo_id: int):
@@ -239,22 +232,13 @@ def get_cached_branches(session, repo_id: int):
     ).scalars().all()
 
 
-def get_cached_releases(session, repo_id: int, since_date=None):
-    query = select(Release).where(Release.repo_id == repo_id)
-    if since_date is not None:
-        query = query.where(Release.created_at >= since_date)
-    return session.execute(query).scalars().all()
+def get_cached_releases(session, repo_id: int):
+    return session.execute(select(Release).where(Release.repo_id == repo_id)).scalars().all()
 
 
-def get_cached_issues(session, repo_id: int, since_date=None):
-    query = select(Issue).where(Issue.repo_id == repo_id)
-    if since_date is not None:
-        query = query.where(Issue.created_at >= since_date)
-    return session.execute(query).scalars().all()
+def get_cached_issues(session, repo_id: int):
+    return session.execute(select(Issue).where(Issue.repo_id == repo_id)).scalars().all()
 
 
-def get_cached_prs(session, repo_id: int, since_date=None):
-    query = select(PullRequest).where(PullRequest.repo_id == repo_id)
-    if since_date is not None:
-        query = query.where(PullRequest.created_at >= since_date)
-    return session.execute(query).scalars().all()
+def get_cached_prs(session, repo_id: int):
+    return session.execute(select(PullRequest).where(PullRequest.repo_id == repo_id)).scalars().all()

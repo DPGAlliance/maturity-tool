@@ -4,7 +4,6 @@ import streamlit as st
 import traceback
 import os
 import sys
-from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
@@ -50,21 +49,6 @@ def fetch_repos_for_owner(owner, token):
         page += 1
     return repos
 
-def calculate_since_date(time_range):
-    """Calculate the 'since' date based on selected time range."""
-    now = datetime.now(timezone.utc)
-    
-    if time_range == "6 months":
-        return now - timedelta(days=180)
-    elif time_range == "1 year":
-        return now - timedelta(days=365)
-    elif time_range == "2 years":
-        return now - timedelta(days=730)
-    elif time_range == "3 years":
-        return now - timedelta(days=1095)
-    else:  # "All time"
-        return None
-
 def main():
     load_dotenv()
     st.set_page_config(layout="wide")
@@ -80,7 +64,7 @@ def main():
     
     # Repository selection
     st.subheader("Repository Selection")
-    col_owner, col_repo, col_time = st.columns([2, 2, 2])
+    col_owner, col_repo = st.columns([2, 2])
     
     with col_owner:
         # Provide suggestions via selectbox but allow a free-text owner by choosing "Other"
@@ -110,23 +94,8 @@ def main():
             repo_list if repo_list else ["DIGIT-OSS"],
             index=0 if repo_list else 0
         )
-    
-    with col_time:
-        time_range = st.selectbox(
-            "Analysis Time Range",
-            ["6 months", "1 year", "2 years", "3 years", "All time"],
-            index=0,  # Default to 6 months
-            help="Select how far back to analyze data. Shorter ranges load faster for large repositories."
-        )
-    
-    # Calculate the since date for queries
-    since_date = calculate_since_date(time_range)
-    
-    # Display time range info
-    if since_date:
-        st.info(f"📅 Analyzing data from **{since_date.strftime('%B %d, %Y')}** onwards ({time_range})")
-    else:
-        st.info("📅 Analyzing **all available data** (this may take longer for large repositories)")
+
+    st.info("📅 Analyzing **all available data** (this may take longer for large repositories)")
 
     use_db_cache_default = os.getenv("USE_DB_CACHE", "false").lower() in {"1", "true", "yes"}
     use_db_cache = st.toggle(
@@ -175,7 +144,6 @@ def main():
         owner,
         repo,
         GITHUB_TOKEN,
-        since_date,
         use_db_cache=use_db_cache,
         session=session,
         repo_id=repo_obj.id if repo_obj else None,
@@ -194,7 +162,6 @@ def main():
         owner,
         repo,
         GITHUB_TOKEN,
-        since_date,
         use_db_cache=use_db_cache,
         session=session,
         repo_id=repo_obj.id if repo_obj else None,
@@ -206,7 +173,6 @@ def main():
             owner,
             repo,
             GITHUB_TOKEN,
-            since_date,
             use_db_cache=use_db_cache,
             session=session,
             repo_id=repo_obj.id if repo_obj else None,
@@ -242,14 +208,13 @@ def main():
         repo,
         selected_branch,
         GITHUB_TOKEN,
-        since_date,
         use_db_cache=use_db_cache,
         session=session,
         repo_id=repo_obj.id if repo_obj else None,
     )
     # if the commits_df is empty, show a warning
     if commits_df.empty:
-        st.warning("No commits found for the selected branch and time range.")
+        st.warning("No commits found for the selected branch.")
     else:
         # st.dataframe(commits_df)
         commit_analyzer = CommitAnalyzer(commits_df, df_commits_full=commits_full_df)
