@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
+import pandas as pd
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -136,14 +137,14 @@ def get_org_latest_summary(session: requests.Session, base_url: str, owner: str)
 
 
 
-def parse_dt(value: Optional[str]) -> Optional[datetime]:
-    "WHER IS THIS NEEDED."
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except Exception:
-        return None
+# def parse_dt(value: Optional[str]) -> Optional[datetime]:
+#     "WHER IS THIS NEEDED."
+#     if not value:
+#         return None
+#     try:
+#         return datetime.fromisoformat(value.replace("Z", "+00:00"))
+#     except Exception:
+#         return None
 
 
 
@@ -201,9 +202,11 @@ def should_summarize(
     if force or not previous_summary:
         return True, ["forced" if force else "no previous summary"]
 
-    created_at = parse_dt(previous_summary.get("created_at"))
-    if created_at:
-        age_days = (datetime.now(timezone.utc) - created_at).days
+    previous_created_at = pd.to_datetime(previous_summary.get("created_at"))
+    if previous_created_at:
+        now = datetime.now()
+        LOGGER.info("Previous summary created at %s NOW: %s", previous_created_at, now)
+        age_days = (now - previous_created_at).days
         if age_days >= max_age_days:
             return True, [f"summary age {age_days} days"]
 
@@ -281,10 +284,16 @@ def summarize_repo(
     max_age_days: int,
     force: bool,
     github_token: Optional[str],
+    store: bool = True,
 ) -> Optional[str]:
     latest_metrics = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics")
     history = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics/history?limit={history_limit}")
     latest_metrics = select_all_time_run(history, latest_metrics)
+
+    print(f"\----------- \nLatest metrics for {owner}/{repo}: {latest_metrics}")
+    print(f"\------   ***_____  ----- \nHistory for {owner}/{repo}: {history}")
+    print(f"\------   ***_____  ----- \nFlattened history metrics for {owner}/{repo}: {[flatten_metrics(entry) for entry in history.get('runs', [])]}")
+    print(f"\------   ***_____lkajsdlfkjalskdj lkjasdf  afsdlkja  ----- \n")
 
     latest_run_id = latest_metrics.get("run", {}).get("id")
     previous_summary = get_latest_summary(session, base_url, owner, repo)
@@ -309,23 +318,27 @@ def summarize_repo(
 
     prompt, prompt_version = load_prompt(prompt_path)
     description = fetch_repo_description(owner, repo, github_token)
-    payload = build_repo_payload(owner, repo, latest_metrics, history, description)
-    summary_text = call_openai(client, model, prompt, payload)
+    openai_payload = build_repo_payload(owner, repo, latest_metrics, history, description)
+    summary_text = call_openai(client, model, prompt, openai_payload)
+    butler_payload = {
+                "summary_text": summary_text,
+                "model": model,
+                "prompt_version": prompt_version,
+                "run_id": latest_run_id,
+                "metadata_json": {
+                    "reasons": reasons,
+                    "history_limit": history_limit,
+                },
+            }
 
-    post_json(
-        session,
-        f"{base_url}/repos/{owner}/{repo}/summary",
-        {
-            "summary_text": summary_text,
-            "model": model,
-            "prompt_version": prompt_version,
-            "run_id": latest_run_id,
-            "metadata_json": {
-                "reasons": reasons,
-                "history_limit": history_limit,
-            },
-        },
-    )
+    if store:
+        post_json(
+            session,
+            f"{base_url}/repos/{owner}/{repo}/summary",
+            butler_payload,
+        )
+    else:
+        LOGGER.info("[NOT STORING SUMMARY FOR] %s/%s: %s, %s", owner, repo, ", ".join(reasons), str(butler_payload))
     LOGGER.info("[OK] %s/%s: %s", owner, repo, ", ".join(reasons))
     return summary_text
 
@@ -340,6 +353,7 @@ def summarize_org(
     history_limit: int,
     max_age_days: int,
     force: bool,
+    store: bool = True,
 ) -> Optional[str]:
     org_metrics = get_json(session, f"{base_url}/orgs/{owner}/metrics")
 
@@ -360,23 +374,27 @@ def summarize_org(
         return None
 
     prompt, prompt_version = load_prompt(prompt_path)
-    payload = build_org_payload(owner, org_metrics)
-    summary_text = call_openai(client, model, prompt, payload)
+    openai_payload = build_org_payload(owner, org_metrics)
+    summary_text = call_openai(client, model, prompt, openai_payload)
+    butler_payload = {
+                "summary_text": summary_text,
+                "model": model,
+                "prompt_version": prompt_version,
+                "run_id": None,
+                "metadata_json": {
+                    "reasons": reasons,
+                    "history_limit": history_limit,
+                },
+            }
 
-    post_json(
-        session,
-        f"{base_url}/orgs/{owner}/summary",
-        {
-            "summary_text": summary_text,
-            "model": model,
-            "prompt_version": prompt_version,
-            "run_id": None,
-            "metadata_json": {
-                "reasons": reasons,
-                "history_limit": history_limit,
-            },
-        },
-    )
+    if store:
+        post_json(
+            session,
+            f"{base_url}/orgs/{owner}/summary",
+            butler_payload,
+        )
+    else:
+        LOGGER.info("[NOT STORING SUMMARY FOR] org %s: %s, %s", owner, ", ".join(reasons), str(butler_payload))
     LOGGER.info("[OK] org %s: %s", owner, ", ".join(reasons))
     return summary_text
 
@@ -390,19 +408,8 @@ def parse_args():
     parser.add_argument("--history", type=int, default=DEFAULT_HISTORY_LIMIT)
     parser.add_argument("--max-age-days", type=int, default=DEFAULT_SUMMARY_MAX_AGE_DAYS)
     parser.add_argument("--base-url", default="http://localhost:8000")
+    parser.add_argument("--no_store", action="store_true", help="do not store the generated summaries")
     return parser.parse_args()
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -443,6 +450,7 @@ def main():
             args.max_age_days,
             args.force,
             github_token,
+            not args.no_store, # no_store flag true means store=False, so we invert it here to pass the correct value
         )
         return
 
@@ -461,6 +469,7 @@ def main():
                 args.max_age_days,
                 args.force,
                 github_token,
+                not args.no_store, # no_store flag true means store=False, so we invert it here to pass the correct value
             )
         summarize_org(
             session,
@@ -472,6 +481,7 @@ def main():
             args.history,
             args.max_age_days,
             args.force,
+            not args.no_store, # no_store flag true means store=False, so we invert it here to pass the correct value
         )
         return
 
