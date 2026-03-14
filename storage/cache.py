@@ -49,6 +49,21 @@ def create_run(
     return run
 
 
+def _to_naive_utc(dt: datetime | None) -> datetime | None:
+    """Return a timezone-naive UTC datetime.
+
+    We currently treat timezone as out-of-scope for cache freshness and only
+    care about *days*. To avoid "offset-naive vs offset-aware" comparison
+    errors across DB backends (notably SQLite), we normalize timestamps to
+    naive UTC for reads and writes.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def is_cache_fresh(session, repo_id: int, entity_type: str, max_age_days: int = 7) -> bool:
     fetch_log = session.execute(
         select(FetchLog).where(
@@ -56,10 +71,16 @@ def is_cache_fresh(session, repo_id: int, entity_type: str, max_age_days: int = 
             FetchLog.entity_type == entity_type,
         )
     ).scalar_one_or_none()
-    if not fetch_log:
+    if not fetch_log or not fetch_log.fetched_at:
         return False
-    threshold = datetime.now(timezone.utc) - timedelta(days=max_age_days)
-    return fetch_log.fetched_at >= threshold
+
+    fetched_at = _to_naive_utc(fetch_log.fetched_at)
+    if not fetched_at:
+        return False
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    threshold = now - timedelta(days=max_age_days)
+    return fetched_at >= threshold
 
 
 def record_fetch(session, repo_id: int, entity_type: str) -> None:
@@ -69,11 +90,13 @@ def record_fetch(session, repo_id: int, entity_type: str) -> None:
             FetchLog.entity_type == entity_type,
         )
     ).scalar_one_or_none()
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if fetch_log:
-        fetch_log.fetched_at = datetime.now(timezone.utc)
+        fetch_log.fetched_at = now
         session.add(fetch_log)
     else:
-        session.add(FetchLog(repo_id=repo_id, entity_type=entity_type))
+        session.add(FetchLog(repo_id=repo_id, entity_type=entity_type, fetched_at=now))
     session.commit()
 
 

@@ -22,6 +22,9 @@ replaced or moved later without tight coupling to the app or analyzers.
 - Each repo + entity type records `fetched_at` in `fetch_log`.
 - If data is older than 7 days, a refresh is triggered.
 - Use `--force-refresh` in scripts to override.
+- Timezones are currently ignored for freshness: timestamps are treated as UTC and normalized to timezone-naive datetimes.
+	This is intentional because the cache policy operates at day-level granularity; if we later need sub-day accuracy or
+	user-local reporting, we may revisit this.
 
 ## Metrics Snapshots
 - Each refresh creates a new `runs` record.
