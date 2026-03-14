@@ -88,36 +88,51 @@ def main():
     
     # Repository selection
     st.subheader("Repository Selection")
-    col_owner, col_repo = st.columns([2, 2])
-    
-    with col_owner:
-        # Provide suggestions via selectbox but allow a free-text owner by choosing "Other"
-        owner_choice = st.selectbox(
-            "Repository Owner (pick suggestion or choose Other to type)",
-            options=list(DISTINGUISHED_OWNERS) + ["Other (type custom owner...)"],
-            index=0,
-            key="owner_select",
-            help="Pick from suggestions or choose Other to type a custom owner."
-        )
-        if owner_choice and owner_choice.startswith("Other"):
-            owner = st.text_input(
-                "Custom owner (type a GitHub user or org)",
-                value="",
-                key="owner_custom",
-                help="Type the organization or username you want to analyze."
+    with st.container():
+        col_owner, col_repo, col_source = st.columns([3, 3, 1])
+
+        with col_owner:
+            # Provide suggestions via selectbox but allow a free-text owner by choosing "Other"
+            owner_choice = st.selectbox(
+                "Repository Owner (pick suggestion or choose Other to type)",
+                options=list(DISTINGUISHED_OWNERS) + ["Other (type custom owner...)"],
+                index=0,
+                key="owner_select",
+                help="Pick from suggestions or choose Other to type a custom owner."
             )
-        else:
-            owner = owner_choice
-    
-    with col_repo:
-        repo_list = []
-        if owner:
-            repo_list = fetch_repos_for_owner(owner, GITHUB_TOKEN)
-        repo = st.selectbox(
-            "Repository Name",
-            repo_list if repo_list else ["DIGIT-OSS"],
-            index=0 if repo_list else 0
-        )
+            if owner_choice and owner_choice.startswith("Other"):
+                owner = st.text_input(
+                    "Custom owner (type a GitHub user or org)",
+                    value="",
+                    key="owner_custom",
+                    help="Type the organization or username you want to analyze."
+                )
+            else:
+                owner = owner_choice
+
+        with col_repo:
+            repo_list = []
+            if owner:
+                repo_list = fetch_repos_for_owner(owner, GITHUB_TOKEN)
+            repo = st.selectbox(
+                "Repository Name",
+                repo_list if repo_list else ["DIGIT-OSS"],
+                index=0 if repo_list else 0
+            )
+
+        with col_source:
+            # Spacer so the button aligns visually with the dropdowns.
+            st.markdown("<div style='height: 0.25rem'></div>", unsafe_allow_html=True)
+            if owner and repo:
+                source_url = f"https://github.com/{owner}/{repo}"
+                link_button = getattr(st, "link_button", None)
+                if callable(link_button):
+                    link_button("Go to source", source_url)
+                else:
+                    st.markdown(f"[Go to source]({source_url})")
+
+    # Banner should be outside the selection container.
+    last_fetch_placeholder = st.empty()
 
     # DB cache is the default. If DB is unavailable, fall back to live fetch.
     use_db_cache = True
@@ -146,10 +161,10 @@ def main():
 
     if use_db_cache and session:
         repo_obj = get_or_create_repo(session, owner, repo, default_branch)
-
-        last_fetch_placeholder = st.empty()
         last_fetch_at = get_last_fetch_at(session, repo_obj.id)
-        last_fetch_placeholder.caption(f"Last fetch: {_format_last_fetch(last_fetch_at)}")
+        last_fetch_placeholder.info(
+            f"Repository data last updated at: {_format_last_fetch(last_fetch_at)}"
+        )
 
         if not has_cache_entry(session, repo_obj.id):
             with st.spinner("Fetching and caching repo data..."):
@@ -175,7 +190,9 @@ def main():
                     record_fetch(session, repo_obj.id, entity)
 
             last_fetch_at = get_last_fetch_at(session, repo_obj.id)
-            last_fetch_placeholder.caption(f"Last fetch: {_format_last_fetch(last_fetch_at)}")
+            last_fetch_placeholder.info(
+                f"Repository data last updated at: {_format_last_fetch(last_fetch_at)}"
+            )
 
     display_repo_info(info_result)
     st.divider()
