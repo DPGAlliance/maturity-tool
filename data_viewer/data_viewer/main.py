@@ -4,8 +4,10 @@ import streamlit as st
 import traceback
 import os
 import sys
+from datetime import datetime
 
 from dotenv import load_dotenv
+import pandas as pd
 
 # Handle imports for both local development and Streamlit Cloud deployment
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,16 +21,38 @@ sys.path.insert(0, maturity_tools_dir)    # For maturity_tools package
 
 from maturity_tools.github_call import github_api_call
 from maturity_tools.queries import repo_info_query
+from maturity_tools.github_call import process_branches, process_commits, process_issues, process_prs, process_releases
 from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results, display_summary
 from data import get_branches_data, get_commits_data, get_releases_data, get_issues_data, get_prs_data, get_repo_summary_db, get_org_summary_db
 from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
-from storage.cache import get_or_create_repo
+from storage.cache import get_or_create_repo, get_last_fetch_at, has_cache_entry, record_fetch, upsert_branches, upsert_commits, upsert_issues, upsert_prs, upsert_releases
 from storage.db import get_session, init_db
 
 # Import distinguished owners
 from distinguished_owners import DISTINGUISHED_OWNERS
 
 import requests
+
+
+ENTITY_TYPES = ("branches", "commits", "issues", "prs", "releases")
+
+
+def _normalize_datetime_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    for col in cols:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
+    return df
+
+
+def _format_last_fetch(dt: datetime | None) -> str:
+    if not dt:
+        return "(none)"
+    try:
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(dt)
 
 def fetch_repos_for_owner(owner, token):
     """Fetch public repos for a given owner using GitHub REST API."""
@@ -95,23 +119,16 @@ def main():
             index=0 if repo_list else 0
         )
 
-    st.info("📅 Analyzing **all available data** (this may take longer for large repositories)")
-
-    use_db_cache_default = os.getenv("USE_DB_CACHE", "false").lower() in {"1", "true", "yes"}
-    use_db_cache = st.toggle(
-        "Use DB cache",
-        value=use_db_cache_default,
-        help="Use the local database cache (requires DATABASE_URL or default sqlite).",
-    )
+    # DB cache is the default. If DB is unavailable, fall back to live fetch.
+    use_db_cache = True
     session = None
     repo_obj = None
-    if use_db_cache:
-        try:
-            init_db()
-            session = get_session()
-        except Exception as exc:
-            st.warning(f"DB cache unavailable: {exc}")
-            use_db_cache = False
+    try:
+        init_db()
+        session = get_session()
+    except Exception as exc:
+        st.warning(f"DB cache unavailable; using live fetch. ({exc})")
+        use_db_cache = False
     
     info_query_variables = {
         "owner": owner,
@@ -119,14 +136,47 @@ def main():
     }
 
     info_result = github_api_call(repo_info_query, info_query_variables, GITHUB_TOKEN)
+
+    default_branch = (
+        info_result.get("data", {})
+        .get("repository", {})
+        .get("defaultBranchRef", {})
+        .get("name")
+    )
+
     if use_db_cache and session:
-        default_branch = (
-            info_result.get("data", {})
-            .get("repository", {})
-            .get("defaultBranchRef", {})
-            .get("name")
-        )
         repo_obj = get_or_create_repo(session, owner, repo, default_branch)
+
+        last_fetch_placeholder = st.empty()
+        last_fetch_at = get_last_fetch_at(session, repo_obj.id)
+        last_fetch_placeholder.caption(f"Last fetch: {_format_last_fetch(last_fetch_at)}")
+
+        if not has_cache_entry(session, repo_obj.id):
+            with st.spinner("Fetching and caching repo data..."):
+                branches_df = process_branches({"owner": owner, "repo": repo}, GITHUB_TOKEN)
+                commits_df_full = process_commits({"owner": owner, "repo": repo, "branch": default_branch}, GITHUB_TOKEN)
+                issues_df = process_issues({"owner": owner, "repo": repo}, GITHUB_TOKEN)
+                prs_df = process_prs({"owner": owner, "repo": repo}, GITHUB_TOKEN)
+                releases_df = process_releases({"owner": owner, "repo": repo}, GITHUB_TOKEN)
+
+                branches_df = _normalize_datetime_columns(branches_df, ["last_commit_date"])
+                commits_df_full = _normalize_datetime_columns(commits_df_full, ["authoredDate"])
+                issues_df = _normalize_datetime_columns(issues_df, ["createdAt", "closedAt", "first_comment_createdAt"])
+                prs_df = _normalize_datetime_columns(prs_df, ["createdAt", "mergedAt", "closedAt", "first_comment_createdAt"])
+                releases_df = _normalize_datetime_columns(releases_df, ["created_at"])
+
+                upsert_branches(session, repo_obj.id, branches_df.to_dict("records"))
+                upsert_commits(session, repo_obj.id, commits_df_full.to_dict("records"))
+                upsert_issues(session, repo_obj.id, issues_df.to_dict("records"))
+                upsert_prs(session, repo_obj.id, prs_df.to_dict("records"))
+                upsert_releases(session, repo_obj.id, releases_df.to_dict("records"))
+
+                for entity in ENTITY_TYPES:
+                    record_fetch(session, repo_obj.id, entity)
+
+            last_fetch_at = get_last_fetch_at(session, repo_obj.id)
+            last_fetch_placeholder.caption(f"Last fetch: {_format_last_fetch(last_fetch_at)}")
+
     display_repo_info(info_result)
     st.divider()
 

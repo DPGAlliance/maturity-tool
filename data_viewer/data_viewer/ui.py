@@ -472,20 +472,21 @@ def display_issue_results(issue_analyzer):
     with col1:
         st.markdown("**Issues Status**")
         if not issue_analyzer.df_issues.empty:
-            issues_status = issue_analyzer.df_issues['state'].value_counts()
+            states = issue_analyzer.df_issues.get("state")
+            states = states.astype(str).str.upper() if states is not None else pd.Series([], dtype=str)
 
-            open_issues = issues_status.get('OPEN', 0)
-            closed_issues = issues_status.get('CLOSED', 0)
-            total_issues = closed_issues + open_issues
-            closed_issues_ratio = closed_issues / total_issues if total_issues else 0
+            open_issues = int((states == "OPEN").sum())
+            closed_issues = int((states == "CLOSED").sum())
+            total_issues = open_issues + closed_issues
+            closed_issues_ratio = (closed_issues / total_issues) if total_issues else 0
 
-            issues_status_df = issues_status.reset_index().rename(columns={'index': 'Status', 'state': 'Count'})
-            ratio_df = pd.DataFrame([
-                {"Status": "Closed Issues %", "Count": round(closed_issues_ratio, 2)}
-            ])
-            issues_status_df = pd.concat([issues_status_df, ratio_df], ignore_index=True)
-            issues_status_df["Status"] = issues_status_df["Status"].astype(str)
-            issues_status_df["Count"] = pd.to_numeric(issues_status_df["Count"], errors="coerce")
+            issues_status_df = pd.DataFrame(
+                [
+                    {"Status": "Open", "Count": open_issues},
+                    {"Status": "Closed", "Count": closed_issues},
+                    {"Status": "Closed Issues %", "Count": round(closed_issues_ratio, 2)},
+                ]
+            )
 
             st.dataframe(
                 issues_status_df,
@@ -499,11 +500,21 @@ def display_issue_results(issue_analyzer):
     with col2:
         st.markdown("**Pull Requests Status**")
         if not issue_analyzer.df_prs.empty:
-            prs_status = issue_analyzer.df_prs['state'].value_counts()
-            st.dataframe(
-                prs_status.reset_index().rename(columns={'index': 'Status', 'state': 'Count'}),
-                width="stretch",
-                hide_index=True
+            prs_states = issue_analyzer.df_prs.get("state")
+            prs_states = prs_states.astype(str).str.upper() if prs_states is not None else pd.Series([], dtype=str)
+
+            # Common PR states are OPEN/CLOSED/MERGED; show those in a stable order.
+            prs_open = int((prs_states == "OPEN").sum())
+            prs_closed = int((prs_states == "CLOSED").sum())
+            prs_merged = int((prs_states == "MERGED").sum())
+
+            prs_status_df = pd.DataFrame(
+                [
+                    {"Status": "Open", "Count": prs_open},
+                    {"Status": "Merged", "Count": prs_merged},
+                    {"Status": "Closed", "Count": prs_closed},
+                ]
             )
+            st.dataframe(prs_status_df, width="stretch", hide_index=True)
         else:
             st.info("No pull requests data available")

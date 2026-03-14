@@ -5,6 +5,7 @@ from typing import Iterable
 
 import pandas as pd
 from sqlalchemy import select
+from sqlalchemy.sql import func
 
 from storage.models import (
     Branch,
@@ -83,6 +84,28 @@ def is_cache_fresh(session, repo_id: int, entity_type: str, max_age_days: int = 
     return fetched_at >= threshold
 
 
+def has_cache_entry(session, repo_id: int) -> bool:
+    """Return True if this repo has any cached fetch timestamps."""
+    return (
+        session.execute(
+            select(func.count(FetchLog.id)).where(FetchLog.repo_id == repo_id)
+        ).scalar_one()
+        > 0
+    )
+
+
+def get_last_fetch_at(session, repo_id: int) -> datetime | None:
+    """Return the latest fetch timestamp across all entity types for a repo.
+
+    Returned datetime is normalized to timezone-naive UTC for consistent display
+    and comparisons.
+    """
+    latest = session.execute(
+        select(func.max(FetchLog.fetched_at)).where(FetchLog.repo_id == repo_id)
+    ).scalar_one_or_none()
+    return _to_naive_utc(latest)
+
+
 def record_fetch(session, repo_id: int, entity_type: str) -> None:
     fetch_log = session.execute(
         select(FetchLog).where(
@@ -91,7 +114,9 @@ def record_fetch(session, repo_id: int, entity_type: str) -> None:
         )
     ).scalar_one_or_none()
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Store UTC-aware timestamps in the DB (models use timezone-aware columns),
+    # but compare/display using timezone-naive UTC (see _to_naive_utc).
+    now = datetime.now(timezone.utc)
     if fetch_log:
         fetch_log.fetched_at = now
         session.add(fetch_log)

@@ -8,13 +8,9 @@ from storage.cache import (
     get_cached_issues,
     get_cached_prs,
     get_cached_releases,
-    is_cache_fresh,
-    record_fetch,
-    upsert_branches,
-    upsert_commits,
-    upsert_issues,
-    upsert_prs,
-    upsert_releases,
+    # NOTE: DB-cache mode in the viewer is intentionally read-only.
+    # Cache refresh is handled by scheduled scripts; the viewer only fetches
+    # from GitHub when no cache entry exists yet (handled in main.py).
 )
 from storage.models import Repo, Summary
 from sqlalchemy import select
@@ -210,13 +206,7 @@ def get_branches_data(
         return _normalize_branches_df(branches_df)
 
     with st.spinner("Loading branches..."):
-        if is_cache_fresh(session, repo_id, "branches", cache_max_age_days):
-            return _branches_to_df(get_cached_branches(session, repo_id))
-
-        branches_df = process_branches({"owner": owner, "repo": repo}, token)
-        upsert_branches(session, repo_id, branches_df.to_dict("records"))
-        record_fetch(session, repo_id, "branches")
-        return _normalize_branches_df(branches_df)
+        return _branches_to_df(get_cached_branches(session, repo_id))
 
 
 def get_commits_data(
@@ -234,16 +224,7 @@ def get_commits_data(
         return commits_full_df, commits_full_df
 
     with st.spinner("Loading commits..."):
-        if is_cache_fresh(session, repo_id, "commits", cache_max_age_days):
-            commits_full_df = _commits_to_df(get_cached_commits(session, repo_id))
-        else:
-            commits_full_df = _normalize_commits_df(process_commits(
-                {"owner": owner, "repo": repo, "branch": branch},
-                token,
-            ))
-            upsert_commits(session, repo_id, commits_full_df.to_dict("records"))
-            record_fetch(session, repo_id, "commits")
-
+        commits_full_df = _commits_to_df(get_cached_commits(session, repo_id))
         return commits_full_df, commits_full_df
 
 
@@ -261,14 +242,7 @@ def get_releases_data(
         return _normalize_releases_df(releases_df)
 
     with st.spinner("Loading releases..."):
-        if is_cache_fresh(session, repo_id, "releases", cache_max_age_days):
-            releases_df = _releases_to_df(get_cached_releases(session, repo_id))
-        else:
-            releases_df = _normalize_releases_df(process_releases({"owner": owner, "repo": repo}, token))
-            upsert_releases(session, repo_id, releases_df.to_dict("records"))
-            record_fetch(session, repo_id, "releases")
-
-        return releases_df
+        return _releases_to_df(get_cached_releases(session, repo_id))
 
 
 def get_issues_data(
@@ -285,14 +259,7 @@ def get_issues_data(
         return _normalize_issues_df(issues_df)
 
     with st.spinner("Loading issues..."):
-        if is_cache_fresh(session, repo_id, "issues", cache_max_age_days):
-            issues_df = _issues_to_df(get_cached_issues(session, repo_id))
-        else:
-            issues_df = _normalize_issues_df(process_issues({"owner": owner, "repo": repo}, token))
-            upsert_issues(session, repo_id, issues_df.to_dict("records"))
-            record_fetch(session, repo_id, "issues")
-
-        return issues_df
+        return _issues_to_df(get_cached_issues(session, repo_id))
 
 
 def get_prs_data(
@@ -309,12 +276,7 @@ def get_prs_data(
         return _normalize_prs_df(prs_df)
 
     with st.spinner("Loading pull requests..."):
-        if is_cache_fresh(session, repo_id, "prs", cache_max_age_days):
-            prs_df = _prs_to_df(get_cached_prs(session, repo_id))
-        else:
-            prs_df = _normalize_prs_df(process_prs({"owner": owner, "repo": repo}, token))
-            upsert_prs(session, repo_id, prs_df.to_dict("records"))
-            record_fetch(session, repo_id, "prs")
+        prs_df = _prs_to_df(get_cached_prs(session, repo_id))
 
     return prs_df
 
