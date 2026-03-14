@@ -27,6 +27,7 @@ from data import get_branches_data, get_commits_data, get_releases_data, get_iss
 from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
 from storage.cache import get_or_create_repo, get_last_fetch_at, has_cache_entry, record_fetch, upsert_branches, upsert_commits, upsert_issues, upsert_prs, upsert_releases
 from storage.db import get_session, init_db
+from storage.secrets import get_secret
 
 # Import distinguished owners
 from distinguished_owners import DISTINGUISHED_OWNERS
@@ -79,11 +80,18 @@ def main():
     st.title("Maturity Data Viewer")
     st.write("This app is for showcasing the currently available data from the maturity_tools package.")
 
-    # Get GitHub token from Streamlit secrets
-    GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN")
+    # Prefer Streamlit secrets (local dev / Streamlit Cloud), then Docker secrets / env.
+    # NOTE: Accessing st.secrets will raise if no secrets.toml exists, so guard it.
+    try:
+        token_from_streamlit = st.secrets.get("GITHUB_TOKEN")
+    except Exception:
+        token_from_streamlit = None
+    GITHUB_TOKEN = token_from_streamlit or get_secret("GITHUB_TOKEN")
     
     if not GITHUB_TOKEN:
-        st.error("⚠️ GitHub token not found! Please add GITHUB_TOKEN to Streamlit secrets.")
+        st.error(
+            "⚠️ GitHub token not found! Provide GITHUB_TOKEN via Streamlit secrets, env var, or GITHUB_TOKEN_FILE."
+        )
         st.stop()
     
     # Repository selection

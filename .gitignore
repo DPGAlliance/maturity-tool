@@ -131,6 +131,10 @@ venv.bak/
 # Streamlit secrets
 .streamlit/secrets.toml
 
+# Docker secrets (file-based, not committed)
+secrets/*
+!secrets/README.md
+
 # Spyder project settings
 .spyderproject
 .spyproject

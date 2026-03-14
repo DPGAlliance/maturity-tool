@@ -241,10 +241,6 @@ def summarize_repo(
     latest_metrics = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics")
     history = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics/history?limit={history_limit}")
 
-    print(f"\----------- \nLatest metrics for {owner}/{repo}: {latest_metrics}")
-    print(f"\------   ***_____  ----- \nHistory for {owner}/{repo}: {history}")
-    print(f"\------   ***_____lkajsdlfkjalskdj lkjasdf  afsdlkja  ----- \n")
-
     latest_run_id = latest_metrics.get("run", {}).get("id")
     previous_summary = get_latest_summary(session, base_url, owner, repo)
 
@@ -369,15 +365,17 @@ def main():
     load_dotenv(os.path.join(REPO_ROOT, ".env"))
     args = parse_args()
 
+    from storage.secrets import get_secret
+
     # get api keys and validate
-    api_key = os.getenv("API_KEY")
+    api_key = get_secret("API_KEY")
     if not api_key:
         raise SystemExit("API_KEY is required in .env")
-    openai_key = os.getenv("OPENAI_API_KEY")
+    openai_key = get_secret("OPENAI_API_KEY")
     if not openai_key:
         raise SystemExit("OPENAI_API_KEY is required in .env")
 
-    github_token = os.getenv("GITHUB_TOKEN")
+    github_token = get_secret("GITHUB_TOKEN")
 
     session = requests.Session()
     session.headers.update(api_headers(api_key))

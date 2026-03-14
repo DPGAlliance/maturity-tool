@@ -37,14 +37,9 @@ from storage.db import get_session, init_db
 from storage.metrics import add_metric
 
 import logging
+from storage.logging_config import configure_logging
+
 logger = logging.getLogger("refresh_cache")
-if not logger.handlers:
-    logger.setLevel(logging.INFO)
-    _handler = logging.StreamHandler()
-    _handler.setLevel(logging.INFO)
-    _formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
-    _handler.setFormatter(_formatter)
-    logger.addHandler(_handler)
 
 try:
     from data_viewer.data_viewer.distinguished_owners import DISTINGUISHED_OWNERS
@@ -63,6 +58,7 @@ def fetch_repos_for_owner(owner: str, token: str) -> list[str]:
         url = f"https://api.github.com/users/{owner}/repos?per_page=100&page={page}"
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
+            logger.warning("Failed to list repos for %s (status=%s)", owner, resp.status_code)
             break
         data = resp.json()
         if not data:
@@ -216,62 +212,80 @@ def compute_commit_metrics(session, run_id, commit_analyzer, contribution_type="
 
 
 def compute_issue_pr_metrics(session, run_id, issue_analyzer: IssuePRAnalyzer):
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="median_time_to_first_response_hours",
-        value=issue_analyzer.time_to_first_response("issue").total_seconds() / 3600,
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="issue_closure_ratio_90d",
-        value=issue_analyzer.issue_closure_ratio(90),
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="median_time_to_close_days",
-        value=issue_analyzer.time_to_close("issue").total_seconds() / 86400,
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="backlog_size",
-        value=issue_analyzer.backlog_size(),
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="good_first_issue_velocity_90d",
-        value=issue_analyzer.good_first_issue_velocity(90),
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="prs",
-        name="median_time_to_first_response_hours",
-        value=issue_analyzer.time_to_first_response("pr").total_seconds() / 3600,
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="prs",
-        name="median_time_to_close_days",
-        value=issue_analyzer.time_to_close("pr").total_seconds() / 86400,
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="prs",
-        name="median_pr_merge_time_days",
-        value=issue_analyzer.pr_merge_time().total_seconds() / 86400,
-    )
+    has_issues = issue_analyzer.df_issues is not None and not issue_analyzer.df_issues.empty
+    has_prs = issue_analyzer.df_prs is not None and not issue_analyzer.df_prs.empty
+
+    # Issues
+    if has_issues:
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="median_time_to_first_response_hours",
+            value=issue_analyzer.time_to_first_response("issue").total_seconds() / 3600,
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="issue_closure_ratio_90d",
+            value=issue_analyzer.issue_closure_ratio(90),
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="median_time_to_close_days",
+            value=issue_analyzer.time_to_close("issue").total_seconds() / 86400,
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="backlog_size",
+            value=issue_analyzer.backlog_size(),
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="good_first_issue_velocity_90d",
+            value=issue_analyzer.good_first_issue_velocity(90),
+        )
+    else:
+        add_metric(session, run_id=run_id, scope="issues", name="median_time_to_first_response_hours", value=0.0)
+        add_metric(session, run_id=run_id, scope="issues", name="issue_closure_ratio_90d", value=0.0)
+        add_metric(session, run_id=run_id, scope="issues", name="median_time_to_close_days", value=0.0)
+        add_metric(session, run_id=run_id, scope="issues", name="backlog_size", value=0)
+        add_metric(session, run_id=run_id, scope="issues", name="good_first_issue_velocity_90d", value=0)
+
+    # PRs
+    if has_prs:
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="prs",
+            name="median_time_to_first_response_hours",
+            value=issue_analyzer.time_to_first_response("pr").total_seconds() / 3600,
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="prs",
+            name="median_time_to_close_days",
+            value=issue_analyzer.time_to_close("pr").total_seconds() / 86400,
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="prs",
+            name="median_pr_merge_time_days",
+            value=issue_analyzer.pr_merge_time().total_seconds() / 86400,
+        )
+    else:
+        add_metric(session, run_id=run_id, scope="prs", name="median_time_to_first_response_hours", value=0.0)
+        add_metric(session, run_id=run_id, scope="prs", name="median_time_to_close_days", value=0.0)
+        add_metric(session, run_id=run_id, scope="prs", name="median_pr_merge_time_days", value=0.0)
 
 
 def compute_release_metrics(session, run_id, release_analyzer: ReleaseAnalyzer):
@@ -298,6 +312,7 @@ def collect_for_repo(
     token,
     force_refresh,
 ):
+    logger.info("Collecting %s/%s", owner, repo)
     info_result = github_api_call(
         repo_info_query,
         {"owner": owner, "repo": repo},
@@ -316,9 +331,19 @@ def collect_for_repo(
     }
     needs_refresh = force_refresh or not all(cache_fresh.values())
 
+    logger.info(
+        "Cache decision for %s/%s: needs_refresh=%s (force_refresh=%s, fresh=%s)",
+        owner,
+        repo,
+        needs_refresh,
+        force_refresh,
+        cache_fresh,
+    )
+
     variables = {"owner": owner, "repo": repo, "branch": default_branch}
 
     if needs_refresh:
+        logger.info("Fetching fresh data for %s/%s", owner, repo)
         branches_df = process_branches({"owner": owner, "repo": repo}, token)
         commits_df_full = process_commits(variables, token)
         issues_df = process_issues({"owner": owner, "repo": repo}, token)
@@ -340,6 +365,7 @@ def collect_for_repo(
         for entity in ENTITY_TYPES:
             record_fetch(session, repo_obj.id, entity)
     else:
+        logger.info("Reusing cached data for %s/%s", owner, repo)
         branches_df = normalize_datetime_columns(branches_to_df(get_cached_branches(session, repo_obj.id)), ["last_commit_date"])
         commits_df_full = normalize_datetime_columns(commits_to_df(get_cached_commits(session, repo_obj.id)), ["authoredDate"])
         issues_df = normalize_datetime_columns(issues_to_df(get_cached_issues(session, repo_obj.id)), ["createdAt", "closedAt", "first_comment_createdAt"])
@@ -387,9 +413,12 @@ def parse_args():
 
 
 def main():
+    configure_logging()
     load_dotenv(os.path.join(repo_root, ".env"))
     args = parse_args()
-    token = os.getenv("GITHUB_TOKEN")
+    from storage.secrets import get_secret
+
+    token = get_secret("GITHUB_TOKEN")
     if not token:
         raise SystemExit("GITHUB_TOKEN is required")
 
@@ -403,9 +432,7 @@ def main():
     for owner in owners:
         repos = [args.repo] if args.repo else fetch_repos_for_owner(owner, token)
         for repo in repos:
-            logger.info(
-                f"Processing {owner}/{repo} (force_refresh: {args.force_refresh})"
-            )
+            logger.info("Processing %s/%s (force_refresh=%s)", owner, repo, args.force_refresh)
             collect_for_repo(
                 session=session,
                 owner=owner,

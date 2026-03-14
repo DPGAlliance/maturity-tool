@@ -5,13 +5,6 @@ from storage.models import Metric
 import logging
 
 logger = logging.getLogger("storage.metrics")
-if not logger.handlers:
-    logger.setLevel(logging.INFO)
-    _handler = logging.StreamHandler()
-    _handler.setLevel(logging.INFO)
-    _formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
-    _handler.setFormatter(_formatter)
-    logger.addHandler(_handler)
 
 
 def add_metric(session, run_id: int, scope: str, name: str, value):
@@ -41,5 +34,14 @@ def add_metric(session, run_id: int, scope: str, name: str, value):
         value_json=value_json,
     )
     session.add(metric)
-    logger.info(f"Added metric: {scope}/{name} = {value} (int: {value_int}, float: {value_float}, text: {value_text}, json: {value_json})")
+    logger.info(
+        "Added metric: %s/%s = %s (int=%s float=%s text=%s json=%s)",
+        scope,
+        name,
+        value,
+        value_int,
+        value_float,
+        value_text,
+        value_json,
+    )
     session.commit()

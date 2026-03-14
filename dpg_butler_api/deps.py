@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, Request, status
 
 from storage.db import get_session
+from storage.secrets import get_secret
 
 
 def get_db_session():
@@ -16,7 +17,7 @@ def get_db_session():
 
 def require_api_key(request: Request):
     load_dotenv()
-    api_key = os.getenv("API_KEY")
+    api_key = get_secret("API_KEY")
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -150,7 +150,7 @@ query($owner: String!, $repo: String!, $first_issues: Int!, $after_issues: Strin
 """
 
 pr_query = """
-query($owner: String!, $repo: String!, $first_prs: Int!, $after_prs: String, $since: DateTime) {
+query($owner: String!, $repo: String!, $first_prs: Int!, $after_prs: String) {
   repository(owner: $owner, name: $repo) {
     pullRequests(first: $first_prs, after: $after_prs, states: [OPEN, CLOSED, MERGED], orderBy: {field: CREATED_AT, direction: DESC}) {
       edges {

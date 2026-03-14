@@ -1,0 +1,77 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-maturity}
+      POSTGRES_USER: ${POSTGRES_USER:-maturity}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maturity}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-maturity}:${POSTGRES_PASSWORD:-maturity}@db:5432/${POSTGRES_DB:-maturity}
+      API_KEY_FILE: /run/secrets/api_key
+    secrets:
+      - api_key
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "dpg_butler_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  viewer:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-maturity}:${POSTGRES_PASSWORD:-maturity}@db:5432/${POSTGRES_DB:-maturity}
+      GITHUB_TOKEN_FILE: /run/secrets/github_token
+    secrets:
+      - github_token
+    ports:
+      - "8501:8501"
+    command: ["streamlit", "run", "data_viewer/data_viewer/main.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+
+  refresh_scheduler:
+    build: .
+    profiles: ["scheduler"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-maturity}:${POSTGRES_PASSWORD:-maturity}@db:5432/${POSTGRES_DB:-maturity}
+      GITHUB_TOKEN_FILE: /run/secrets/github_token
+      API_KEY_FILE: /run/secrets/api_key
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      REFRESH_INTERVAL_DAYS: ${REFRESH_INTERVAL_DAYS:-7}
+      REFRESH_INTERVAL_SECONDS: ${REFRESH_INTERVAL_SECONDS:-}
+      REFRESH_OWNERS: ${REFRESH_OWNERS:-}
+      REFRESH_REPO: ${REFRESH_REPO:-}
+      FORCE_REFRESH: ${FORCE_REFRESH:-false}
+      RUN_SUMMARIES: ${RUN_SUMMARIES:-true}
+      SUMMARY_BASE_URL: ${SUMMARY_BASE_URL:-http://api:8000}
+    secrets:
+      - github_token
+      - api_key
+      - openai_api_key
+    command: ["python", "scripts/refresh_scheduler.py"]
+
+volumes:
+  postgres_data:
+
+secrets:
+  api_key:
+    file: ./secrets/api_key
+  github_token:
+    file: ./secrets/github_token
+  openai_api_key:
+    file: ./secrets/openai_api_key

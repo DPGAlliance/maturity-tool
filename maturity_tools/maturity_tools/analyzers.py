@@ -1,4 +1,7 @@
 import pandas as pd
+import logging
+
+logger = logging.getLogger("maturity_tools.analyzers")
 from datetime import datetime, timedelta, timezone
 
 
@@ -161,7 +164,11 @@ class CommitAnalyzer:
         """
         if contribution_type not in ['commits', 'lines']:
             raise ValueError("contribution_type must be 'commits' or 'lines'.")
-        print(f"Calculating new vs core contributors with contribution_type='{contribution_type}' and period_days={period_days}")
+        logger.info(
+            "Calculating new vs core contributors (contribution_type=%s, period_days=%s)",
+            contribution_type,
+            period_days,
+        )
 
         recent_commits = self.df_commits
         full_commits = self.df_commits_full if self.df_commits_full is not None else self.df_commits
@@ -196,8 +203,12 @@ class CommitAnalyzer:
                 new_contributors.add(author)
 
         active_core_contributors = set(core_contributors).intersection(recent_contributors)
-        print(f"New contributors in the last {period_days} days: {new_contributors}")
-        print(f"Active core contributors in the last {period_days} days: {active_core_contributors}")
+        logger.info("New contributors in last %s days: %s", period_days, sorted(new_contributors))
+        logger.info(
+            "Active core contributors in last %s days: %s",
+            period_days,
+            sorted(active_core_contributors),
+        )
         return len(new_contributors), len(active_core_contributors)
 
     def code_churn(self, period='day'):
@@ -312,6 +323,13 @@ class IssuePRAnalyzer:
         else:
             raise ValueError("item_type must be 'issue' or 'pr'.")
 
+        if df is None or df.empty:
+            return pd.Timedelta(seconds=0)
+
+        required_cols = {created_col, comment_created_col, author_col, comment_author_col}
+        if not required_cols.issubset(set(df.columns)):
+            return pd.Timedelta(seconds=0)
+
         # Filter for items with a first comment by a non-author
         responded_items = df[
             (df[comment_created_col].notna()) & 
@@ -334,19 +352,22 @@ class IssuePRAnalyzer:
         Returns:
             float: Issue closure ratio.
         """
+        if self.df_issues is None or self.df_issues.empty:
+            return 0.0
+        required_cols = {"createdAt", "closedAt"}
+        if not required_cols.issubset(set(self.df_issues.columns)):
+            return 0.0
+
         end_date = pd.to_datetime('now', utc=True)
         start_date = end_date - pd.Timedelta(days=period_days)
 
-        opened_in_period = self.df_issues[
-            (self.df_issues['createdAt'] >= start_date) & 
-            (self.df_issues['createdAt'] <= end_date)
-        ].shape[0]
+        # Coerce to timezone-aware datetimes (guards against tz-naive inputs).
+        created_at = pd.to_datetime(self.df_issues["createdAt"], utc=True, errors="coerce")
+        closed_at = pd.to_datetime(self.df_issues["closedAt"], utc=True, errors="coerce")
 
-        closed_in_period = self.df_issues[
-            (self.df_issues['closedAt'].notna()) & 
-            (self.df_issues['closedAt'] >= start_date) & 
-            (self.df_issues['closedAt'] <= end_date)
-        ].shape[0]
+        opened_in_period = ((created_at >= start_date) & (created_at <= end_date)).sum()
+
+        closed_in_period = ((closed_at.notna()) & (closed_at >= start_date) & (closed_at <= end_date)).sum()
 
         if opened_in_period == 0:
             return 0.0
@@ -363,10 +384,18 @@ class IssuePRAnalyzer:
             pd.Timedelta: Median time to close.
         """
         if item_type == 'issue':
+            if self.df_issues is None or self.df_issues.empty:
+                return pd.Timedelta(seconds=0)
+            if not {'state', 'createdAt', 'closedAt'}.issubset(set(self.df_issues.columns)):
+                return pd.Timedelta(seconds=0)
             df = self.df_issues[self.df_issues['state'] == 'CLOSED'].copy()
             created_col = 'createdAt'
             closed_col = 'closedAt'
         elif item_type == 'pr':
+            if self.df_prs is None or self.df_prs.empty:
+                return pd.Timedelta(seconds=0)
+            if not {'state', 'createdAt', 'closedAt'}.issubset(set(self.df_prs.columns)):
+                return pd.Timedelta(seconds=0)
             df = self.df_prs[
                 (self.df_prs['state'] == 'MERGED') | (self.df_prs['state'] == 'CLOSED')
             ].copy()
@@ -388,6 +417,11 @@ class IssuePRAnalyzer:
         Returns:
             pd.Timedelta: Median time to merge.
         """
+        if self.df_prs is None or self.df_prs.empty:
+            return pd.Timedelta(seconds=0)
+        if not {'state', 'createdAt', 'mergedAt'}.issubset(set(self.df_prs.columns)):
+            return pd.Timedelta(seconds=0)
+
         merged_prs = self.df_prs[self.df_prs['state'] == 'MERGED'].copy()
         if merged_prs.empty:
             return pd.Timedelta(seconds=0)
@@ -402,6 +436,10 @@ class IssuePRAnalyzer:
         Returns:
             int: Number of open issues.
         """
+        if self.df_issues is None or self.df_issues.empty:
+            return 0
+        if 'state' not in self.df_issues.columns:
+            return 0
         return self.df_issues[self.df_issues['state'] == 'OPEN'].shape[0]
 
     def good_first_issue_velocity(self, period_days=90):
@@ -414,6 +452,12 @@ class IssuePRAnalyzer:
         Returns:
             float: 'Good first issue' velocity.
         """
+        if self.df_issues is None or self.df_issues.empty:
+            return 0
+        required = {'state', 'labels', 'closedAt'}
+        if not required.issubset(set(self.df_issues.columns)):
+            return 0
+
         end_date = pd.to_datetime('now', utc=True)
         start_date = end_date - pd.Timedelta(days=period_days)
 
@@ -434,21 +478,26 @@ class IssuePRAnalyzer:
         Returns:
             pd.Series: Time series with dates as index and open issue counts as values.
         """
-        if self.df_issues.empty:
+        if self.df_issues is None or self.df_issues.empty:
+            return pd.Series(dtype=int)
+        required_cols = {"createdAt", "closedAt"}
+        if not required_cols.issubset(set(self.df_issues.columns)):
+            return pd.Series(dtype=int)
+
+        created_at = pd.to_datetime(self.df_issues["createdAt"], utc=True, errors="coerce")
+        closed_at = pd.to_datetime(self.df_issues["closedAt"], utc=True, errors="coerce")
+        if created_at.dropna().empty:
             return pd.Series(dtype=int)
 
         # Create a date range from the earliest issue creation to today
-        start_date = self.df_issues['createdAt'].min().normalize()
+        start_date = created_at.min().normalize()
         end_date = pd.to_datetime('now', utc=True).normalize()
         date_range = pd.date_range(start=start_date, end=end_date, freq='D')
 
         open_issue_counts = []
 
         for single_date in date_range:
-            open_issues = self.df_issues[
-                (self.df_issues['createdAt'] <= single_date) & 
-                ((self.df_issues['closedAt'].isna()) | (self.df_issues['closedAt'] > single_date))
-            ].shape[0]
+            open_issues = ((created_at <= single_date) & ((closed_at.isna()) | (closed_at > single_date))).sum()
             open_issue_counts.append(open_issues)
 
         return pd.Series(data=open_issue_counts, index=date_range, name='open_issue_count')

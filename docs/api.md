@@ -11,10 +11,17 @@ Authorization: Bearer <API_KEY>
 
 Set `API_KEY` in `.env`.
 
+Docker secrets are also supported via `API_KEY_FILE=/run/secrets/api_key`.
+
 ## Run locally
 ```bash
 poetry -C dpg_butler_api install
 poetry -C dpg_butler_api run python -m uvicorn dpg_butler_api.main:app --reload
+```
+
+## Run with Docker
+```bash
+docker compose up -d --build
 ```
 
 ## Endpoints

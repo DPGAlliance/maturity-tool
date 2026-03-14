@@ -10,6 +10,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.11"
 sqlalchemy = "^2.0.46"
+psycopg = {version = "^3.2.0", extras = ["binary"]}
 
 [build-system]
 requires = ["poetry-core"]
