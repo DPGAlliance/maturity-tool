@@ -11,7 +11,7 @@ pandas = "^2.0.0"
 requests = "^2.25.0"
 python-dotenv = "^1.0.1"
 sqlalchemy = "^2.0.46"
-psycopg = {version = "^3.2.0", extras = ["binary"]}
+psycopg = {extras = ["binary"], version = "^3.3.3"}
 maturity-tools = {path = "../maturity_tools"}
 maturity-storage = {path = "../storage", develop = true}
 openai = "^1.40.0"

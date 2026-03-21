@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
+import math
+import time
 from typing import Iterable
 
 import pandas as pd
@@ -130,7 +133,32 @@ def _iter_batches(items: list[dict], batch_size: int) -> Iterable[list[dict]]:
         yield items[i : i + batch_size]
 
 
-def _upsert_all(session, rows: Iterable, model, key_fields: tuple[str, ...]) -> None:
+def _format_duration(seconds: float) -> str:
+    total_seconds = int(round(seconds))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
+def _upsert_all(
+    session,
+    rows: Iterable,
+    model,
+    key_fields: tuple[str, ...],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+    entity_type: str | None = None,
+) -> None:
     rows = list(rows)
     if not rows:
         return
@@ -151,7 +179,24 @@ def _upsert_all(session, rows: Iterable, model, key_fields: tuple[str, ...]) -> 
 
     batch_size = 1000
     dialect = session.bind.dialect.name
-    for batch in _iter_batches(row_dicts, batch_size):
+    status_logger = logging.getLogger("refresh.status")
+    total_rows = len(row_dicts)
+    total_batches = math.ceil(total_rows / batch_size)
+    log_batches = entity_type in {"commits", "issues", "prs"} and owner and repo
+
+    for batch_index, batch in enumerate(_iter_batches(row_dicts, batch_size), start=1):
+        if log_batches:
+            status_logger.info(
+                "owner=%s repo=%s stage=%s batch=%s/%s rows=%s total_rows=%s status=start",
+                owner,
+                repo,
+                entity_type,
+                batch_index,
+                total_batches,
+                len(batch),
+                total_rows,
+            )
+            batch_start = time.monotonic()
         if dialect == "postgresql":
             from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -169,6 +214,19 @@ def _upsert_all(session, rows: Iterable, model, key_fields: tuple[str, ...]) -> 
         else:
             session.execute(model.__table__.insert(), batch)
 
+        if log_batches:
+            status_logger.info(
+                "owner=%s repo=%s stage=%s batch=%s/%s rows=%s total_rows=%s status=ok duration=%s",
+                owner,
+                repo,
+                entity_type,
+                batch_index,
+                total_batches,
+                len(batch),
+                total_rows,
+                _format_duration(time.monotonic() - batch_start),
+            )
+
     session.commit()
 
 
@@ -183,7 +241,14 @@ def _clean_value(value):
     return value
 
 
-def upsert_commits(session, repo_id: int, commits: Iterable[dict]) -> None:
+def upsert_commits(
+    session,
+    repo_id: int,
+    commits: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         Commit(
             repo_id=repo_id,
@@ -196,10 +261,25 @@ def upsert_commits(session, repo_id: int, commits: Iterable[dict]) -> None:
         )
         for item in commits
     ]
-    _upsert_all(session, rows, Commit, ("repo_id", "oid"))
+    _upsert_all(
+        session,
+        rows,
+        Commit,
+        ("repo_id", "oid"),
+        owner=owner,
+        repo=repo,
+        entity_type="commits",
+    )
 
 
-def upsert_branches(session, repo_id: int, branches: Iterable[dict]) -> None:
+def upsert_branches(
+    session,
+    repo_id: int,
+    branches: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         Branch(
             repo_id=repo_id,
@@ -212,7 +292,14 @@ def upsert_branches(session, repo_id: int, branches: Iterable[dict]) -> None:
     _upsert_all(session, rows, Branch, ("repo_id", "name"))
 
 
-def upsert_releases(session, repo_id: int, releases: Iterable[dict]) -> None:
+def upsert_releases(
+    session,
+    repo_id: int,
+    releases: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         Release(
             repo_id=repo_id,
@@ -226,7 +313,14 @@ def upsert_releases(session, repo_id: int, releases: Iterable[dict]) -> None:
     _upsert_all(session, rows, Release, ("repo_id", "tag_name"))
 
 
-def upsert_issues(session, repo_id: int, issues: Iterable[dict]) -> None:
+def upsert_issues(
+    session,
+    repo_id: int,
+    issues: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         Issue(
             repo_id=repo_id,
@@ -241,10 +335,25 @@ def upsert_issues(session, repo_id: int, issues: Iterable[dict]) -> None:
         )
         for item in issues
     ]
-    _upsert_all(session, rows, Issue, ("repo_id", "github_id"))
+    _upsert_all(
+        session,
+        rows,
+        Issue,
+        ("repo_id", "github_id"),
+        owner=owner,
+        repo=repo,
+        entity_type="issues",
+    )
 
 
-def upsert_prs(session, repo_id: int, prs: Iterable[dict]) -> None:
+def upsert_prs(
+    session,
+    repo_id: int,
+    prs: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         PullRequest(
             repo_id=repo_id,
@@ -260,7 +369,15 @@ def upsert_prs(session, repo_id: int, prs: Iterable[dict]) -> None:
         )
         for item in prs
     ]
-    _upsert_all(session, rows, PullRequest, ("repo_id", "github_id"))
+    _upsert_all(
+        session,
+        rows,
+        PullRequest,
+        ("repo_id", "github_id"),
+        owner=owner,
+        repo=repo,
+        entity_type="prs",
+    )
 
 
 def get_cached_commits(session, repo_id: int):

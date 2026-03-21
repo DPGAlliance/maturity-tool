@@ -517,11 +517,41 @@ def collect_for_repo(
         prs_df = normalize_datetime_columns(prs_df, ["createdAt", "mergedAt", "closedAt", "first_comment_createdAt"])
         releases_df = normalize_datetime_columns(releases_df, ["created_at"])
 
-        upsert_branches(session, repo_obj.id, branches_df.to_dict("records"))
-        upsert_commits(session, repo_obj.id, commits_df_full.to_dict("records"))
-        upsert_issues(session, repo_obj.id, issues_df.to_dict("records"))
-        upsert_prs(session, repo_obj.id, prs_df.to_dict("records"))
-        upsert_releases(session, repo_obj.id, releases_df.to_dict("records"))
+        upsert_branches(
+            session,
+            repo_obj.id,
+            branches_df.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
+        upsert_commits(
+            session,
+            repo_obj.id,
+            commits_df_full.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
+        upsert_issues(
+            session,
+            repo_obj.id,
+            issues_df.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
+        upsert_prs(
+            session,
+            repo_obj.id,
+            prs_df.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
+        upsert_releases(
+            session,
+            repo_obj.id,
+            releases_df.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
 
         for entity in ENTITY_TYPES:
             record_fetch(session, repo_obj.id, entity)
