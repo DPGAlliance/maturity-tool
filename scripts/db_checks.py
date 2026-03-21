@@ -41,11 +41,7 @@ def run_sql(engine, sql: str) -> None:
 
 
 def list_tables(engine) -> None:
-    dialect = engine.dialect.name
-    if dialect == "sqlite":
-        sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-    else:
-        sql = "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name"
+    sql = "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name"
     run_sql(engine, sql)
 
 
@@ -75,14 +71,6 @@ def table_counts(engine, tables: list[str]) -> None:
 
 
 def reset_all(engine, tables: list[str]) -> None:
-    dialect = engine.dialect.name
-    if dialect == "sqlite":
-        with engine.begin() as conn:
-            for table in tables:
-                conn.execute(text(f"DELETE FROM {table}"))
-        print("SQLite tables cleared.")
-        return
-
     table_list = ", ".join(tables)
     sql = f"TRUNCATE {table_list} RESTART IDENTITY CASCADE"
     run_sql(engine, sql)

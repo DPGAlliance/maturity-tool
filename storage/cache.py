@@ -55,8 +55,8 @@ def _to_naive_utc(dt: datetime | None) -> datetime | None:
 
     We currently treat timezone as out-of-scope for cache freshness and only
     care about *days*. To avoid "offset-naive vs offset-aware" comparison
-    errors across DB backends (notably SQLite), we normalize timestamps to
-    naive UTC for reads and writes.
+    errors across DB backends, we normalize timestamps to naive UTC for reads
+    and writes.
     """
     if dt is None:
         return None
@@ -152,21 +152,7 @@ def _upsert_all(session, rows: Iterable, model, key_fields: tuple[str, ...]) -> 
     batch_size = 1000
     dialect = session.bind.dialect.name
     for batch in _iter_batches(row_dicts, batch_size):
-        if dialect == "sqlite":
-            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-            stmt = sqlite_insert(model).values(batch)
-            update_cols = {
-                col: getattr(stmt.excluded, col)
-                for col in columns
-                if col not in key_fields
-            }
-            stmt = stmt.on_conflict_do_update(
-                index_elements=[getattr(model, field) for field in key_fields],
-                set_=update_cols,
-            )
-            session.execute(stmt)
-        elif dialect == "postgresql":
+        if dialect == "postgresql":
             from sqlalchemy.dialects.postgresql import insert as pg_insert
 
             stmt = pg_insert(model).values(batch)

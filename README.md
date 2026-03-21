@@ -42,8 +42,8 @@ docker compose --profile scheduler up -d
     - `FORCE_REFRESH` (default: `false`)
 
 ### Storage (new)
-- Local cache + metrics snapshots live under `storage/` using SQLite by default.
-- `DATABASE_URL` can point at Postgres (SQLAlchemy + psycopg).
+- Local cache + metrics snapshots live in Postgres only.
+- `DATABASE_URL` is required (SQLAlchemy + psycopg).
 - Refresh cache/metrics: `python scripts/refresh_cache.py --owner <org>`
 
 ### Docs

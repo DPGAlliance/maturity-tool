@@ -14,8 +14,7 @@ replaced or moved later without tight coupling to the app or analyzers.
 - `storage/metrics.py` : helper to store metrics as key/value records.
 
 ## Database URL
-- Default SQLite file: `storage/maturity.db`.
-- Override with `DATABASE_URL` (Postgres-compatible).
+- Postgres only. `DATABASE_URL` is required.
 - `.env` is auto-loaded by the app and refresh script.
 
 Example Postgres URL:
