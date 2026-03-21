@@ -125,6 +125,11 @@ def record_fetch(session, repo_id: int, entity_type: str) -> None:
     session.commit()
 
 
+def _iter_batches(items: list[dict], batch_size: int) -> Iterable[list[dict]]:
+    for i in range(0, len(items), batch_size):
+        yield items[i : i + batch_size]
+
+
 def _upsert_all(session, rows: Iterable, model, key_fields: tuple[str, ...]) -> None:
     rows = list(rows)
     if not rows:
@@ -144,37 +149,39 @@ def _upsert_all(session, rows: Iterable, model, key_fields: tuple[str, ...]) -> 
     if not row_dicts:
         return
 
+    batch_size = 1000
     dialect = session.bind.dialect.name
-    if dialect == "sqlite":
-        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    for batch in _iter_batches(row_dicts, batch_size):
+        if dialect == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-        stmt = sqlite_insert(model).values(row_dicts)
-        update_cols = {
-            col: getattr(stmt.excluded, col)
-            for col in columns
-            if col not in key_fields
-        }
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[getattr(model, field) for field in key_fields],
-            set_=update_cols,
-        )
-        session.execute(stmt)
-    elif dialect == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
+            stmt = sqlite_insert(model).values(batch)
+            update_cols = {
+                col: getattr(stmt.excluded, col)
+                for col in columns
+                if col not in key_fields
+            }
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[getattr(model, field) for field in key_fields],
+                set_=update_cols,
+            )
+            session.execute(stmt)
+        elif dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        stmt = pg_insert(model).values(row_dicts)
-        update_cols = {
-            col: getattr(stmt.excluded, col)
-            for col in columns
-            if col not in key_fields
-        }
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[getattr(model, field) for field in key_fields],
-            set_=update_cols,
-        )
-        session.execute(stmt)
-    else:
-        session.execute(model.__table__.insert(), row_dicts)
+            stmt = pg_insert(model).values(batch)
+            update_cols = {
+                col: getattr(stmt.excluded, col)
+                for col in columns
+                if col not in key_fields
+            }
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[getattr(model, field) for field in key_fields],
+                set_=update_cols,
+            )
+            session.execute(stmt)
+        else:
+            session.execute(model.__table__.insert(), batch)
 
     session.commit()
 

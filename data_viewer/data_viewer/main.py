@@ -23,7 +23,16 @@ from maturity_tools.github_call import github_api_call
 from maturity_tools.queries import repo_info_query
 from maturity_tools.github_call import process_branches, process_commits, process_issues, process_prs, process_releases
 from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results, display_summary
-from data import get_branches_data, get_commits_data, get_releases_data, get_issues_data, get_prs_data, get_repo_summary_db, get_org_summary_db
+from data import (
+    get_branches_data,
+    get_commits_data,
+    get_releases_data,
+    get_issues_data,
+    get_prs_data,
+    get_repo_metrics_db,
+    get_repo_summary_db,
+    get_org_summary_db,
+)
 from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
 from storage.cache import get_or_create_repo, get_last_fetch_at, has_cache_entry, record_fetch, upsert_branches, upsert_commits, upsert_issues, upsert_prs, upsert_releases
 from storage.db import get_session, init_db
@@ -153,28 +162,37 @@ def main():
         st.warning(f"DB cache unavailable; using live fetch. ({exc})")
         use_db_cache = False
     
-    info_query_variables = {
-        "owner": owner,
-        "repo": repo,
-    }
-
-    info_result = github_api_call(repo_info_query, info_query_variables, GITHUB_TOKEN)
-
-    default_branch = (
-        info_result.get("data", {})
-        .get("repository", {})
-        .get("defaultBranchRef", {})
-        .get("name")
-    )
+    info_result = None
+    repo_metrics = None
+    default_branch = None
 
     if use_db_cache and session:
-        repo_obj = get_or_create_repo(session, owner, repo, default_branch)
+        repo_obj = get_or_create_repo(session, owner, repo, None)
+        if repo_obj.default_branch:
+            default_branch = repo_obj.default_branch
+
         last_fetch_at = get_last_fetch_at(session, repo_obj.id)
         last_fetch_placeholder.info(
             f"Repository data last updated at: {_format_last_fetch(last_fetch_at)}"
         )
 
         if not has_cache_entry(session, repo_obj.id):
+            info_query_variables = {
+                "owner": owner,
+                "repo": repo,
+            }
+            info_result = github_api_call(repo_info_query, info_query_variables, GITHUB_TOKEN)
+            default_branch = (
+                info_result.get("data", {})
+                .get("repository", {})
+                .get("defaultBranchRef", {})
+                .get("name")
+            )
+            if default_branch and repo_obj.default_branch != default_branch:
+                repo_obj.default_branch = default_branch
+                session.add(repo_obj)
+                session.commit()
+
             with st.spinner("Fetching and caching repo data..."):
                 branches_df = process_branches({"owner": owner, "repo": repo}, GITHUB_TOKEN)
                 commits_df_full = process_commits({"owner": owner, "repo": repo, "branch": default_branch}, GITHUB_TOKEN)
@@ -201,8 +219,22 @@ def main():
             last_fetch_placeholder.info(
                 f"Repository data last updated at: {_format_last_fetch(last_fetch_at)}"
             )
+        else:
+            repo_metrics = get_repo_metrics_db(session, owner, repo)
+    else:
+        info_query_variables = {
+            "owner": owner,
+            "repo": repo,
+        }
+        info_result = github_api_call(repo_info_query, info_query_variables, GITHUB_TOKEN)
+        default_branch = (
+            info_result.get("data", {})
+            .get("repository", {})
+            .get("defaultBranchRef", {})
+            .get("name")
+        )
 
-    display_repo_info(info_result)
+    display_repo_info(info_result or repo_metrics)
     st.divider()
 
     if use_db_cache and session:
@@ -275,8 +307,14 @@ def main():
     st.divider()
 
     # Branch specific commit analysis
-    default_branch = info_result.get("data", {}).get("repository", {}).get("defaultBranchRef", {}).get("name", "")
-    selected_branch = st.selectbox("Select a branch to analyze further", branches_df['branch_name'].tolist(), index=branches_df['branch_name'].tolist().index(default_branch) if default_branch in branches_df['branch_name'].tolist() else 0)
+    default_branch = default_branch or ""
+    selected_branch = st.selectbox(
+        "Select a branch to analyze further",
+        branches_df['branch_name'].tolist(),
+        index=branches_df['branch_name'].tolist().index(default_branch)
+        if default_branch in branches_df['branch_name'].tolist()
+        else 0,
+    )
     st.subheader(f"Commits on :green[{selected_branch}] branch")
     commits_df, commits_full_df = get_commits_data(
         owner,

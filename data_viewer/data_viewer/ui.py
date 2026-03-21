@@ -21,23 +21,50 @@ def display_summary(summary, missing_message=None):
 
 
 def display_repo_info(result):
-    #parse metrics from result
-    repo = result.get("data", {}).get("repository", {})
-    branch = repo.get("defaultBranchRef", {}).get("name", "-")
-    stargazers = repo.get("stargazerCount", 0)
-    forks = repo.get("forkCount", 0)
-    watchers = repo.get("watchers", {}).get("totalCount", 0)
-    open_issues = repo.get("issues", {}).get("totalCount", 0)
-    closed_issues = repo.get("closedIssues", {}).get("totalCount", 0)
-    # display metrics
+    if not result:
+        st.info("Repository summary not available yet.")
+        return
+
+    if "data" in result:
+        repo = result.get("data", {}).get("repository", {})
+        metrics = {
+            "default_branch": repo.get("defaultBranchRef", {}).get("name", "-"),
+            "stars": repo.get("stargazerCount", 0),
+            "forks": repo.get("forkCount", 0),
+            "watchers": repo.get("watchers", {}).get("totalCount", 0),
+            "open_issues": repo.get("issues", {}).get("totalCount", 0),
+            "closed_issues": repo.get("closedIssues", {}).get("totalCount", 0),
+            "open_prs": repo.get("pullRequests", {}).get("totalCount", 0),
+            "closed_prs": repo.get("closedPullRequests", {}).get("totalCount", 0),
+            "created_at": repo.get("createdAt"),
+            "updated_at": repo.get("updatedAt"),
+            "is_archived": repo.get("isArchived"),
+        }
+    else:
+        metrics = result
+
     st.subheader("Repository Summary")
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    col1.metric("Default Branch", branch)
-    col2.metric("Stars", stargazers)
-    col3.metric("Forks", forks)
-    col4.metric("Watchers", watchers)
-    col5.metric("Open Issues", open_issues)
-    col6.metric("Closed Issues", closed_issues)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Default Branch", metrics.get("default_branch", "-"))
+    col2.metric("Stars", metrics.get("stars", 0))
+    col3.metric("Forks", metrics.get("forks", 0))
+    col4.metric("Watchers", metrics.get("watchers", 0))
+
+    col5, col6, col7, col8 = st.columns(4)
+    col5.metric("Open Issues", metrics.get("open_issues", 0))
+    col6.metric("Closed Issues", metrics.get("closed_issues", 0))
+    col7.metric("Open PRs", metrics.get("open_prs", 0))
+    col8.metric("Closed PRs", metrics.get("closed_prs", 0))
+
+    col9, col10, col11 = st.columns(3)
+    col9.metric("Created At", metrics.get("created_at", "-"))
+    col10.metric("Updated At", metrics.get("updated_at", "-"))
+    archived_value = metrics.get("is_archived", None)
+    if archived_value is None:
+        archived_label = "-"
+    else:
+        archived_label = "Yes" if archived_value else "No"
+    col11.metric("Archived", archived_label)
 
 def display_branch_results(result_df):
     st.dataframe(result_df)

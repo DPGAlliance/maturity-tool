@@ -12,7 +12,7 @@ from storage.cache import (
     # Cache refresh is handled by scheduled scripts; the viewer only fetches
     # from GitHub when no cache entry exists yet (handled in main.py).
 )
-from storage.models import Repo, Summary
+from storage.models import Metric, Repo, Run, Summary
 from sqlalchemy import select
 
 # Cache branch results until owner/repo changes
@@ -311,3 +311,45 @@ def get_org_summary_db(session, owner: str):
         .first()
     )
     return summary
+
+
+def _metric_value(metric: Metric):
+    if metric.value_int is not None:
+        return metric.value_int
+    if metric.value_float is not None:
+        return metric.value_float
+    if metric.value_text is not None:
+        return metric.value_text
+    return metric.value_json
+
+
+def get_repo_metrics_db(session, owner: str, repo: str) -> dict | None:
+    repo_obj = session.execute(
+        select(Repo).where(Repo.owner == owner, Repo.name == repo)
+    ).scalar_one_or_none()
+    if not repo_obj:
+        return None
+
+    latest_run_id = (
+        session.execute(
+            select(Metric.run_id)
+            .join(Run, Run.id == Metric.run_id)
+            .where(Run.repo_id == repo_obj.id, Metric.scope == "repo")
+            .order_by(Run.run_started_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    )
+    if not latest_run_id:
+        return None
+
+    metrics = (
+        session.execute(
+            select(Metric).where(Metric.run_id == latest_run_id, Metric.scope == "repo")
+        )
+        .scalars()
+        .all()
+    )
+    if not metrics:
+        return None
+
+    return {metric.name: _metric_value(metric) for metric in metrics}

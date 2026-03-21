@@ -305,6 +305,89 @@ def compute_release_metrics(session, run_id, release_analyzer: ReleaseAnalyzer):
     )
 
 
+def compute_repo_metrics(session, run_id, repo_info: dict) -> None:
+    if not repo_info:
+        return
+
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="default_branch",
+        value=repo_info.get("defaultBranchRef", {}).get("name"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="stars",
+        value=repo_info.get("stargazerCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="forks",
+        value=repo_info.get("forkCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="watchers",
+        value=repo_info.get("watchers", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="open_issues",
+        value=repo_info.get("issues", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="closed_issues",
+        value=repo_info.get("closedIssues", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="open_prs",
+        value=repo_info.get("pullRequests", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="closed_prs",
+        value=repo_info.get("closedPullRequests", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="created_at",
+        value=repo_info.get("createdAt"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="updated_at",
+        value=repo_info.get("updatedAt"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="is_archived",
+        value=repo_info.get("isArchived"),
+    )
+
+
 def collect_for_repo(
     session,
     owner,
@@ -313,18 +396,8 @@ def collect_for_repo(
     force_refresh,
 ):
     logger.info("Collecting %s/%s", owner, repo)
-    info_result = github_api_call(
-        repo_info_query,
-        {"owner": owner, "repo": repo},
-        token,
-    )
-    default_branch = (
-        info_result.get("data", {})
-        .get("repository", {})
-        .get("defaultBranchRef", {})
-        .get("name")
-    )
-    repo_obj = get_or_create_repo(session, owner, repo, default_branch)
+    repo_obj = get_or_create_repo(session, owner, repo, None)
+    default_branch = repo_obj.default_branch
 
     cache_fresh = {
         entity: is_cache_fresh(session, repo_obj.id, entity) for entity in ENTITY_TYPES
@@ -340,10 +413,24 @@ def collect_for_repo(
         cache_fresh,
     )
 
-    variables = {"owner": owner, "repo": repo, "branch": default_branch}
-
+    repo_info = {}
     if needs_refresh:
         logger.info("Fetching fresh data for %s/%s", owner, repo)
+        info_result = github_api_call(
+            repo_info_query,
+            {"owner": owner, "repo": repo},
+            token,
+        )
+        repo_info = info_result.get("data", {}).get("repository", {})
+        fetched_default_branch = repo_info.get("defaultBranchRef", {}).get("name")
+        if fetched_default_branch:
+            default_branch = fetched_default_branch
+            if repo_obj.default_branch != default_branch:
+                repo_obj.default_branch = default_branch
+                session.add(repo_obj)
+                session.commit()
+
+        variables = {"owner": owner, "repo": repo, "branch": default_branch}
         branches_df = process_branches({"owner": owner, "repo": repo}, token)
         commits_df_full = process_commits(variables, token)
         issues_df = process_issues({"owner": owner, "repo": repo}, token)
@@ -383,6 +470,9 @@ def collect_for_repo(
         source="scheduled",
         notes="cache refresh" if needs_refresh else "cache reuse",
     )
+
+    if needs_refresh:
+        compute_repo_metrics(session, run.id, repo_info)
 
     if not commits_df_recent.empty:
         commit_analyzer = CommitAnalyzer(

@@ -2,6 +2,9 @@
 repo_info_query = """
 query($owner: String!, $repo: String!) {
   repository(owner: $owner, name: $repo) {
+    createdAt
+    updatedAt
+    isArchived
     defaultBranchRef {
       name
     }
@@ -14,6 +17,12 @@ query($owner: String!, $repo: String!) {
       totalCount
     }
     closedIssues: issues(states: CLOSED) {
+      totalCount
+    }
+    pullRequests(states: OPEN) {
+      totalCount
+    }
+    closedPullRequests: pullRequests(states: CLOSED) {
       totalCount
     }
   }
