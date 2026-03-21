@@ -2,6 +2,7 @@ import logging
 import os
 import subprocess
 import time
+from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
@@ -11,6 +12,23 @@ from storage.secrets import get_secret
 
 
 logger = logging.getLogger("refresh_scheduler")
+status_logger = logging.getLogger("refresh.status")
+
+
+def _format_duration(seconds: float) -> str:
+    total_seconds = int(round(seconds))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
 
 
 def _parse_bool(value: str | None) -> bool:
@@ -140,6 +158,7 @@ def main() -> None:
         cycle += 1
         start = time.time()
         logger.info("Starting refresh cycle %s", cycle)
+        status_logger.info("owner=* repo=* stage=cycle_start status=begin cycle=%s", cycle)
         try:
             run_cycle(
                 token=token,
@@ -155,7 +174,19 @@ def main() -> None:
 
         elapsed = time.time() - start
         sleep_for = max(0, interval_seconds - int(elapsed))
-        logger.info("Cycle %s complete in %ss; sleeping %ss", cycle, int(elapsed), sleep_for)
+        next_start = datetime.now(timezone.utc) + timedelta(seconds=sleep_for)
+        logger.info(
+            "Cycle %s complete in %s; sleeping %s (next start %s)",
+            cycle,
+            _format_duration(elapsed),
+            _format_duration(sleep_for),
+            next_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        status_logger.info(
+            "owner=* repo=* stage=cycle_sleep status=next_start at=%s in=%s",
+            next_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            _format_duration(sleep_for),
+        )
         time.sleep(sleep_for)
 
 

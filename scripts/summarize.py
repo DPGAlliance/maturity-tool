@@ -9,6 +9,7 @@ import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 import pandas as pd
+from storage.logging_config import configure_logging
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -37,6 +38,7 @@ DRIFT_THRESHOLDS = {
 }
 
 LOGGER = logging.getLogger("summarizer")
+STATUS_LOGGER = logging.getLogger("refresh.status")
 if not LOGGER.handlers:
     LOGGER.setLevel(logging.INFO)
     _handler = logging.StreamHandler()
@@ -238,6 +240,7 @@ def summarize_repo(
     github_token: Optional[str],
     store: bool = True,
 ) -> Optional[str]:
+    STATUS_LOGGER.info("owner=%s repo=%s stage=summary status=start", owner, repo)
     latest_metrics = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics")
     history = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics/history?limit={history_limit}")
 
@@ -260,6 +263,7 @@ def summarize_repo(
     )
     if not should_write:
         LOGGER.info("[SKIP] %s/%s: %s", owner, repo, ", ".join(reasons))
+        STATUS_LOGGER.info("owner=%s repo=%s stage=summary status=skip", owner, repo)
         return None
 
     prompt, prompt_version = load_prompt(prompt_path)
@@ -286,6 +290,7 @@ def summarize_repo(
     else:
         LOGGER.info("[NOT STORING SUMMARY FOR] %s/%s: %s, %s", owner, repo, ", ".join(reasons), str(butler_payload))
     LOGGER.info("[OK] %s/%s: %s", owner, repo, ", ".join(reasons))
+    STATUS_LOGGER.info("owner=%s repo=%s stage=summary status=ok", owner, repo)
     return summary_text
 
 
@@ -301,6 +306,7 @@ def summarize_org(
     force: bool,
     store: bool = True,
 ) -> Optional[str]:
+    STATUS_LOGGER.info("owner=%s repo=* stage=org_summary status=start", owner)
     org_metrics = get_json(session, f"{base_url}/orgs/{owner}/metrics")
 
     previous_summary = get_org_latest_summary(session, base_url, owner)
@@ -317,6 +323,7 @@ def summarize_org(
     )
     if not should_write:
         LOGGER.info("[SKIP] org %s: %s", owner, ", ".join(reasons))
+        STATUS_LOGGER.info("owner=%s repo=* stage=org_summary status=skip", owner)
         return None
 
     prompt, prompt_version = load_prompt(prompt_path)
@@ -342,6 +349,7 @@ def summarize_org(
     else:
         LOGGER.info("[NOT STORING SUMMARY FOR] org %s: %s, %s", owner, ", ".join(reasons), str(butler_payload))
     LOGGER.info("[OK] org %s: %s", owner, ", ".join(reasons))
+    STATUS_LOGGER.info("owner=%s repo=* stage=org_summary status=ok", owner)
     return summary_text
 
 
@@ -362,6 +370,7 @@ def parse_args():
 
 
 def main():
+    configure_logging()
     load_dotenv(os.path.join(REPO_ROOT, ".env"))
     args = parse_args()
 

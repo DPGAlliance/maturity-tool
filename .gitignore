@@ -183,6 +183,7 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # Database
 *.db

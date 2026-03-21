@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 
 import pandas as pd
 import requests
@@ -40,6 +41,7 @@ import logging
 from storage.logging_config import configure_logging
 
 logger = logging.getLogger("refresh_cache")
+status_logger = logging.getLogger("refresh.status")
 
 try:
     from data_viewer.data_viewer.distinguished_owners import DISTINGUISHED_OWNERS
@@ -48,6 +50,22 @@ except ImportError:
 
 
 ENTITY_TYPES = ["branches", "commits", "issues", "prs", "releases"]
+
+
+def _format_duration(seconds: float) -> str:
+    total_seconds = int(round(seconds))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
 
 
 def fetch_repos_for_owner(owner: str, token: str) -> list[str]:
@@ -395,6 +413,7 @@ def collect_for_repo(
     token,
     force_refresh,
 ):
+    status_logger.info("owner=%s repo=%s stage=start status=begin", owner, repo)
     logger.info("Collecting %s/%s", owner, repo)
     repo_obj = get_or_create_repo(session, owner, repo, None)
     default_branch = repo_obj.default_branch
@@ -403,6 +422,13 @@ def collect_for_repo(
         entity: is_cache_fresh(session, repo_obj.id, entity) for entity in ENTITY_TYPES
     }
     needs_refresh = force_refresh or not all(cache_fresh.values())
+
+    status_logger.info(
+        "owner=%s repo=%s stage=cache_decision status=ready needs_refresh=%s",
+        owner,
+        repo,
+        needs_refresh,
+    )
 
     logger.info(
         "Cache decision for %s/%s: needs_refresh=%s (force_refresh=%s, fresh=%s)",
@@ -416,12 +442,20 @@ def collect_for_repo(
     repo_info = {}
     if needs_refresh:
         logger.info("Fetching fresh data for %s/%s", owner, repo)
+        status_logger.info("owner=%s repo=%s stage=repo_info status=start", owner, repo)
+        repo_info_start = time.monotonic()
         info_result = github_api_call(
             repo_info_query,
             {"owner": owner, "repo": repo},
             token,
         )
         repo_info = info_result.get("data", {}).get("repository", {})
+        status_logger.info(
+            "owner=%s repo=%s stage=repo_info status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - repo_info_start),
+        )
         fetched_default_branch = repo_info.get("defaultBranchRef", {}).get("name")
         if fetched_default_branch:
             default_branch = fetched_default_branch
@@ -431,11 +465,51 @@ def collect_for_repo(
                 session.commit()
 
         variables = {"owner": owner, "repo": repo, "branch": default_branch}
+        status_logger.info("owner=%s repo=%s stage=branches status=start", owner, repo)
+        branches_start = time.monotonic()
         branches_df = process_branches({"owner": owner, "repo": repo}, token)
+        status_logger.info(
+            "owner=%s repo=%s stage=branches status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - branches_start),
+        )
+        status_logger.info("owner=%s repo=%s stage=commits status=start", owner, repo)
+        commits_start = time.monotonic()
         commits_df_full = process_commits(variables, token)
+        status_logger.info(
+            "owner=%s repo=%s stage=commits status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - commits_start),
+        )
+        status_logger.info("owner=%s repo=%s stage=issues status=start", owner, repo)
+        issues_start = time.monotonic()
         issues_df = process_issues({"owner": owner, "repo": repo}, token)
+        status_logger.info(
+            "owner=%s repo=%s stage=issues status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - issues_start),
+        )
+        status_logger.info("owner=%s repo=%s stage=prs status=start", owner, repo)
+        prs_start = time.monotonic()
         prs_df = process_prs({"owner": owner, "repo": repo}, token)
+        status_logger.info(
+            "owner=%s repo=%s stage=prs status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - prs_start),
+        )
+        status_logger.info("owner=%s repo=%s stage=releases status=start", owner, repo)
+        releases_start = time.monotonic()
         releases_df = process_releases({"owner": owner, "repo": repo}, token)
+        status_logger.info(
+            "owner=%s repo=%s stage=releases status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - releases_start),
+        )
 
         branches_df = normalize_datetime_columns(branches_df, ["last_commit_date"])
         commits_df_full = normalize_datetime_columns(commits_df_full, ["authoredDate"])
@@ -453,11 +527,18 @@ def collect_for_repo(
             record_fetch(session, repo_obj.id, entity)
     else:
         logger.info("Reusing cached data for %s/%s", owner, repo)
+        reuse_start = time.monotonic()
         branches_df = normalize_datetime_columns(branches_to_df(get_cached_branches(session, repo_obj.id)), ["last_commit_date"])
         commits_df_full = normalize_datetime_columns(commits_to_df(get_cached_commits(session, repo_obj.id)), ["authoredDate"])
         issues_df = normalize_datetime_columns(issues_to_df(get_cached_issues(session, repo_obj.id)), ["createdAt", "closedAt", "first_comment_createdAt"])
         prs_df = normalize_datetime_columns(prs_to_df(get_cached_prs(session, repo_obj.id)), ["createdAt", "mergedAt", "closedAt", "first_comment_createdAt"])
         releases_df = normalize_datetime_columns(releases_to_df(get_cached_releases(session, repo_obj.id)), ["created_at"])
+        status_logger.info(
+            "owner=%s repo=%s stage=reuse_cache status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - reuse_start),
+        )
 
     commits_df_recent = commits_df_full
     issues_df_recent = issues_df
@@ -472,22 +553,56 @@ def collect_for_repo(
     )
 
     if needs_refresh:
+        status_logger.info("owner=%s repo=%s stage=repo_metrics status=start", owner, repo)
+        repo_metrics_start = time.monotonic()
         compute_repo_metrics(session, run.id, repo_info)
+        status_logger.info(
+            "owner=%s repo=%s stage=repo_metrics status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - repo_metrics_start),
+        )
 
     if not commits_df_recent.empty:
+        status_logger.info("owner=%s repo=%s stage=commit_metrics status=start", owner, repo)
+        commit_metrics_start = time.monotonic()
         commit_analyzer = CommitAnalyzer(
             commits_df_recent,
             df_commits_full=commits_df_full,
         )
         compute_commit_metrics(session, run.id, commit_analyzer)
+        status_logger.info(
+            "owner=%s repo=%s stage=commit_metrics status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - commit_metrics_start),
+        )
 
     if not issues_df_recent.empty or not prs_df_recent.empty:
+        status_logger.info("owner=%s repo=%s stage=issue_pr_metrics status=start", owner, repo)
+        issue_pr_metrics_start = time.monotonic()
         issue_analyzer = IssuePRAnalyzer(issues_df_recent, prs_df_recent)
         compute_issue_pr_metrics(session, run.id, issue_analyzer)
+        status_logger.info(
+            "owner=%s repo=%s stage=issue_pr_metrics status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - issue_pr_metrics_start),
+        )
 
     if not releases_df_recent.empty:
+        status_logger.info("owner=%s repo=%s stage=release_metrics status=start", owner, repo)
+        release_metrics_start = time.monotonic()
         release_analyzer = ReleaseAnalyzer(releases_df_recent)
         compute_release_metrics(session, run.id, release_analyzer)
+        status_logger.info(
+            "owner=%s repo=%s stage=release_metrics status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - release_metrics_start),
+        )
+
+    status_logger.info("owner=%s repo=%s stage=done status=ok", owner, repo)
 
 
 def parse_args():
@@ -521,6 +636,7 @@ def main():
 
     for owner in owners:
         repos = [args.repo] if args.repo else fetch_repos_for_owner(owner, token)
+        status_logger.info("owner=%s repo=* stage=owner_start status=begin", owner)
         for repo in repos:
             logger.info("Processing %s/%s (force_refresh=%s)", owner, repo, args.force_refresh)
             collect_for_repo(
@@ -530,6 +646,7 @@ def main():
                 token=token,
                 force_refresh=args.force_refresh,
             )
+        status_logger.info("owner=%s repo=* stage=owner_done status=ok", owner)
 
 
 if __name__ == "__main__":
