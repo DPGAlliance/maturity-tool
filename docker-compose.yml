@@ -24,7 +24,7 @@ services:
     secrets:
       - api_key
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     command: ["uvicorn", "dpg_butler_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   viewer:
@@ -38,7 +38,7 @@ services:
     secrets:
       - github_token
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     command: ["streamlit", "run", "data_viewer/data_viewer/main.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
 
   refresh_scheduler:
