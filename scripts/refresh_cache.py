@@ -1,6 +1,6 @@
 import argparse
-from datetime import datetime, timedelta, timezone
 import os
+import time
 
 import pandas as pd
 import requests
@@ -37,6 +37,12 @@ from storage.cache import (
 from storage.db import get_session, init_db
 from storage.metrics import add_metric
 
+import logging
+from storage.logging_config import configure_logging
+
+logger = logging.getLogger("refresh_cache")
+status_logger = logging.getLogger("refresh.status")
+
 try:
     from data_viewer.data_viewer.distinguished_owners import DISTINGUISHED_OWNERS
 except ImportError:
@@ -44,6 +50,22 @@ except ImportError:
 
 
 ENTITY_TYPES = ["branches", "commits", "issues", "prs", "releases"]
+
+
+def _format_duration(seconds: float) -> str:
+    total_seconds = int(round(seconds))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
 
 
 def fetch_repos_for_owner(owner: str, token: str) -> list[str]:
@@ -54,6 +76,7 @@ def fetch_repos_for_owner(owner: str, token: str) -> list[str]:
         url = f"https://api.github.com/users/{owner}/repos?per_page=100&page={page}"
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
+            logger.warning("Failed to list repos for %s (status=%s)", owner, resp.status_code)
             break
         data = resp.json()
         if not data:
@@ -63,21 +86,6 @@ def fetch_repos_for_owner(owner: str, token: str) -> list[str]:
             break
         page += 1
     return repos
-
-
-def calculate_since_date(time_range: str | None):
-    if not time_range or time_range.lower() == "all":
-        return None
-    now = datetime.now(timezone.utc)
-    if time_range == "6 months":
-        return now - timedelta(days=180)
-    if time_range == "1 year":
-        return now - timedelta(days=365)
-    if time_range == "2 years":
-        return now - timedelta(days=730)
-    if time_range == "3 years":
-        return now - timedelta(days=1095)
-    return None
 
 
 def commits_to_df(commits):
@@ -186,15 +194,6 @@ def branches_to_df(branches):
     return df.reindex(columns=["branch_name", "total_commits", "last_commit_date"])
 
 
-def normalize_since_date(since_date):
-    if since_date is None:
-        return None
-    timestamp = pd.to_datetime(since_date, utc=True, errors="coerce")
-    if pd.isna(timestamp):
-        return None
-    return timestamp
-
-
 def normalize_datetime_columns(df, columns):
     for col in columns:
         if col in df.columns:
@@ -231,62 +230,80 @@ def compute_commit_metrics(session, run_id, commit_analyzer, contribution_type="
 
 
 def compute_issue_pr_metrics(session, run_id, issue_analyzer: IssuePRAnalyzer):
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="median_time_to_first_response_hours",
-        value=issue_analyzer.time_to_first_response("issue").total_seconds() / 3600,
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="issue_closure_ratio_90d",
-        value=issue_analyzer.issue_closure_ratio(90),
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="median_time_to_close_days",
-        value=issue_analyzer.time_to_close("issue").total_seconds() / 86400,
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="backlog_size",
-        value=issue_analyzer.backlog_size(),
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="issues",
-        name="good_first_issue_velocity_90d",
-        value=issue_analyzer.good_first_issue_velocity(90),
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="prs",
-        name="median_time_to_first_response_hours",
-        value=issue_analyzer.time_to_first_response("pr").total_seconds() / 3600,
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="prs",
-        name="median_time_to_close_days",
-        value=issue_analyzer.time_to_close("pr").total_seconds() / 86400,
-    )
-    add_metric(
-        session,
-        run_id=run_id,
-        scope="prs",
-        name="median_pr_merge_time_days",
-        value=issue_analyzer.pr_merge_time().total_seconds() / 86400,
-    )
+    has_issues = issue_analyzer.df_issues is not None and not issue_analyzer.df_issues.empty
+    has_prs = issue_analyzer.df_prs is not None and not issue_analyzer.df_prs.empty
+
+    # Issues
+    if has_issues:
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="median_time_to_first_response_hours",
+            value=issue_analyzer.time_to_first_response("issue").total_seconds() / 3600,
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="issue_closure_ratio_90d",
+            value=issue_analyzer.issue_closure_ratio(90),
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="median_time_to_close_days",
+            value=issue_analyzer.time_to_close("issue").total_seconds() / 86400,
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="backlog_size",
+            value=issue_analyzer.backlog_size(),
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="issues",
+            name="good_first_issue_velocity_90d",
+            value=issue_analyzer.good_first_issue_velocity(90),
+        )
+    else:
+        add_metric(session, run_id=run_id, scope="issues", name="median_time_to_first_response_hours", value=0.0)
+        add_metric(session, run_id=run_id, scope="issues", name="issue_closure_ratio_90d", value=0.0)
+        add_metric(session, run_id=run_id, scope="issues", name="median_time_to_close_days", value=0.0)
+        add_metric(session, run_id=run_id, scope="issues", name="backlog_size", value=0)
+        add_metric(session, run_id=run_id, scope="issues", name="good_first_issue_velocity_90d", value=0)
+
+    # PRs
+    if has_prs:
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="prs",
+            name="median_time_to_first_response_hours",
+            value=issue_analyzer.time_to_first_response("pr").total_seconds() / 3600,
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="prs",
+            name="median_time_to_close_days",
+            value=issue_analyzer.time_to_close("pr").total_seconds() / 86400,
+        )
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="prs",
+            name="median_pr_merge_time_days",
+            value=issue_analyzer.pr_merge_time().total_seconds() / 86400,
+        )
+    else:
+        add_metric(session, run_id=run_id, scope="prs", name="median_time_to_first_response_hours", value=0.0)
+        add_metric(session, run_id=run_id, scope="prs", name="median_time_to_close_days", value=0.0)
+        add_metric(session, run_id=run_id, scope="prs", name="median_pr_merge_time_days", value=0.0)
 
 
 def compute_release_metrics(session, run_id, release_analyzer: ReleaseAnalyzer):
@@ -306,53 +323,192 @@ def compute_release_metrics(session, run_id, release_analyzer: ReleaseAnalyzer):
     )
 
 
+def compute_repo_metrics(session, run_id, repo_info: dict) -> None:
+    if not repo_info:
+        return
+
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="default_branch",
+        value=repo_info.get("defaultBranchRef", {}).get("name"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="stars",
+        value=repo_info.get("stargazerCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="forks",
+        value=repo_info.get("forkCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="watchers",
+        value=repo_info.get("watchers", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="open_issues",
+        value=repo_info.get("issues", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="closed_issues",
+        value=repo_info.get("closedIssues", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="open_prs",
+        value=repo_info.get("pullRequests", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="closed_prs",
+        value=repo_info.get("closedPullRequests", {}).get("totalCount"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="created_at",
+        value=repo_info.get("createdAt"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="updated_at",
+        value=repo_info.get("updatedAt"),
+    )
+    add_metric(
+        session,
+        run_id=run_id,
+        scope="repo",
+        name="is_archived",
+        value=repo_info.get("isArchived"),
+    )
+
+
 def collect_for_repo(
     session,
     owner,
     repo,
     token,
-    time_range,
-    since_date,
-    full_history,
     force_refresh,
 ):
-    info_result = github_api_call(
-        repo_info_query,
-        {"owner": owner, "repo": repo},
-        token,
-    )
-    default_branch = (
-        info_result.get("data", {})
-        .get("repository", {})
-        .get("defaultBranchRef", {})
-        .get("name")
-    )
-    repo_obj = get_or_create_repo(session, owner, repo, default_branch)
+    status_logger.info("owner=%s repo=%s stage=start status=begin", owner, repo)
+    logger.info("Collecting %s/%s", owner, repo)
+    repo_obj = get_or_create_repo(session, owner, repo, None)
+    default_branch = repo_obj.default_branch
 
     cache_fresh = {
         entity: is_cache_fresh(session, repo_obj.id, entity) for entity in ENTITY_TYPES
     }
     needs_refresh = force_refresh or not all(cache_fresh.values())
 
-    variables = {"owner": owner, "repo": repo, "branch": default_branch}
-    since_variables = variables.copy()
-    if since_date:
-        since_variables["since"] = since_date.isoformat()
+    status_logger.info(
+        "owner=%s repo=%s stage=cache_decision status=ready needs_refresh=%s",
+        owner,
+        repo,
+        needs_refresh,
+    )
 
+    logger.info(
+        "Cache decision for %s/%s: needs_refresh=%s (force_refresh=%s, fresh=%s)",
+        owner,
+        repo,
+        needs_refresh,
+        force_refresh,
+        cache_fresh,
+    )
+
+    repo_info = {}
     if needs_refresh:
+        logger.info("Fetching fresh data for %s/%s", owner, repo)
+        status_logger.info("owner=%s repo=%s stage=repo_info status=start", owner, repo)
+        repo_info_start = time.monotonic()
+        info_result = github_api_call(
+            repo_info_query,
+            {"owner": owner, "repo": repo},
+            token,
+        )
+        repo_info = info_result.get("data", {}).get("repository", {})
+        status_logger.info(
+            "owner=%s repo=%s stage=repo_info status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - repo_info_start),
+        )
+        fetched_default_branch = repo_info.get("defaultBranchRef", {}).get("name")
+        if fetched_default_branch:
+            default_branch = fetched_default_branch
+            if repo_obj.default_branch != default_branch:
+                repo_obj.default_branch = default_branch
+                session.add(repo_obj)
+                session.commit()
+
+        variables = {"owner": owner, "repo": repo, "branch": default_branch}
+        status_logger.info("owner=%s repo=%s stage=branches status=start", owner, repo)
+        branches_start = time.monotonic()
         branches_df = process_branches({"owner": owner, "repo": repo}, token)
+        status_logger.info(
+            "owner=%s repo=%s stage=branches status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - branches_start),
+        )
+        status_logger.info("owner=%s repo=%s stage=commits status=start", owner, repo)
+        commits_start = time.monotonic()
         commits_df_full = process_commits(variables, token)
-        issues_df = process_issues(
-            since_variables if not full_history else {"owner": owner, "repo": repo},
-            token,
+        status_logger.info(
+            "owner=%s repo=%s stage=commits status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - commits_start),
         )
-        prs_df = process_prs(
-            since_variables if not full_history else {"owner": owner, "repo": repo},
-            token,
+        status_logger.info("owner=%s repo=%s stage=issues status=start", owner, repo)
+        issues_start = time.monotonic()
+        issues_df = process_issues({"owner": owner, "repo": repo}, token)
+        status_logger.info(
+            "owner=%s repo=%s stage=issues status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - issues_start),
         )
-        releases_df = process_releases(
-            since_variables if not full_history else {"owner": owner, "repo": repo},
-            token,
+        status_logger.info("owner=%s repo=%s stage=prs status=start", owner, repo)
+        prs_start = time.monotonic()
+        prs_df = process_prs({"owner": owner, "repo": repo}, token)
+        status_logger.info(
+            "owner=%s repo=%s stage=prs status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - prs_start),
+        )
+        status_logger.info("owner=%s repo=%s stage=releases status=start", owner, repo)
+        releases_start = time.monotonic()
+        releases_df = process_releases({"owner": owner, "repo": repo}, token)
+        status_logger.info(
+            "owner=%s repo=%s stage=releases status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - releases_start),
         )
 
         branches_df = normalize_datetime_columns(branches_df, ["last_commit_date"])
@@ -361,75 +517,128 @@ def collect_for_repo(
         prs_df = normalize_datetime_columns(prs_df, ["createdAt", "mergedAt", "closedAt", "first_comment_createdAt"])
         releases_df = normalize_datetime_columns(releases_df, ["created_at"])
 
-        upsert_branches(session, repo_obj.id, branches_df.to_dict("records"))
-        upsert_commits(session, repo_obj.id, commits_df_full.to_dict("records"))
-        upsert_issues(session, repo_obj.id, issues_df.to_dict("records"))
-        upsert_prs(session, repo_obj.id, prs_df.to_dict("records"))
-        upsert_releases(session, repo_obj.id, releases_df.to_dict("records"))
+        upsert_branches(
+            session,
+            repo_obj.id,
+            branches_df.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
+        upsert_commits(
+            session,
+            repo_obj.id,
+            commits_df_full.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
+        upsert_issues(
+            session,
+            repo_obj.id,
+            issues_df.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
+        upsert_prs(
+            session,
+            repo_obj.id,
+            prs_df.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
+        upsert_releases(
+            session,
+            repo_obj.id,
+            releases_df.to_dict("records"),
+            owner=owner,
+            repo=repo,
+        )
 
         for entity in ENTITY_TYPES:
             record_fetch(session, repo_obj.id, entity)
     else:
+        logger.info("Reusing cached data for %s/%s", owner, repo)
+        reuse_start = time.monotonic()
         branches_df = normalize_datetime_columns(branches_to_df(get_cached_branches(session, repo_obj.id)), ["last_commit_date"])
         commits_df_full = normalize_datetime_columns(commits_to_df(get_cached_commits(session, repo_obj.id)), ["authoredDate"])
         issues_df = normalize_datetime_columns(issues_to_df(get_cached_issues(session, repo_obj.id)), ["createdAt", "closedAt", "first_comment_createdAt"])
         prs_df = normalize_datetime_columns(prs_to_df(get_cached_prs(session, repo_obj.id)), ["createdAt", "mergedAt", "closedAt", "first_comment_createdAt"])
         releases_df = normalize_datetime_columns(releases_to_df(get_cached_releases(session, repo_obj.id)), ["created_at"])
+        status_logger.info(
+            "owner=%s repo=%s stage=reuse_cache status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - reuse_start),
+        )
 
-    since_ts = normalize_since_date(since_date)
-    if since_ts is not None:
-        commits_df_recent = commits_df_full[commits_df_full["authoredDate"] >= since_ts]
-        issues_df_recent = issues_df[issues_df["createdAt"] >= since_ts]
-        prs_df_recent = prs_df[prs_df["createdAt"] >= since_ts]
-        releases_df_recent = releases_df[releases_df["created_at"] >= since_ts]
-    else:
-        commits_df_recent = commits_df_full
-        issues_df_recent = issues_df
-        prs_df_recent = prs_df
-        releases_df_recent = releases_df
+    commits_df_recent = commits_df_full
+    issues_df_recent = issues_df
+    prs_df_recent = prs_df
+    releases_df_recent = releases_df
 
     run = create_run(
         session=session,
         repo_id=repo_obj.id,
-        time_range=time_range,
-        since_date=since_date,
         source="scheduled",
         notes="cache refresh" if needs_refresh else "cache reuse",
     )
 
+    if needs_refresh:
+        status_logger.info("owner=%s repo=%s stage=repo_metrics status=start", owner, repo)
+        repo_metrics_start = time.monotonic()
+        compute_repo_metrics(session, run.id, repo_info)
+        status_logger.info(
+            "owner=%s repo=%s stage=repo_metrics status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - repo_metrics_start),
+        )
+
     if not commits_df_recent.empty:
+        status_logger.info("owner=%s repo=%s stage=commit_metrics status=start", owner, repo)
+        commit_metrics_start = time.monotonic()
         commit_analyzer = CommitAnalyzer(
             commits_df_recent,
             df_commits_full=commits_df_full,
         )
         compute_commit_metrics(session, run.id, commit_analyzer)
+        status_logger.info(
+            "owner=%s repo=%s stage=commit_metrics status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - commit_metrics_start),
+        )
 
     if not issues_df_recent.empty or not prs_df_recent.empty:
+        status_logger.info("owner=%s repo=%s stage=issue_pr_metrics status=start", owner, repo)
+        issue_pr_metrics_start = time.monotonic()
         issue_analyzer = IssuePRAnalyzer(issues_df_recent, prs_df_recent)
         compute_issue_pr_metrics(session, run.id, issue_analyzer)
+        status_logger.info(
+            "owner=%s repo=%s stage=issue_pr_metrics status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - issue_pr_metrics_start),
+        )
 
     if not releases_df_recent.empty:
+        status_logger.info("owner=%s repo=%s stage=release_metrics status=start", owner, repo)
+        release_metrics_start = time.monotonic()
         release_analyzer = ReleaseAnalyzer(releases_df_recent)
         compute_release_metrics(session, run.id, release_analyzer)
+        status_logger.info(
+            "owner=%s repo=%s stage=release_metrics status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - release_metrics_start),
+        )
+
+    status_logger.info("owner=%s repo=%s stage=done status=ok", owner, repo)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Refresh maturity data cache.")
     parser.add_argument("--owner", help="GitHub owner/org to refresh")
     parser.add_argument("--repo", help="Specific repo name to refresh")
-    parser.add_argument(
-        "--time-range",
-        default="6 months",
-        choices=["6 months", "1 year", "2 years", "3 years", "all"],
-        help="Time range for metrics computation",
-    )
-    parser.add_argument(
-        "--no-full-history",
-        action="store_false",
-        dest="full_history",
-        help="Limit raw entity fetches to the selected time range",
-    )
-    parser.set_defaults(full_history=True)
     parser.add_argument(
         "--force-refresh",
         action="store_true",
@@ -439,9 +648,12 @@ def parse_args():
 
 
 def main():
+    configure_logging()
     load_dotenv(os.path.join(repo_root, ".env"))
     args = parse_args()
-    token = os.getenv("GITHUB_TOKEN")
+    from storage.secrets import get_secret
+
+    token = get_secret("GITHUB_TOKEN")
     if not token:
         raise SystemExit("GITHUB_TOKEN is required")
 
@@ -452,21 +664,19 @@ def main():
     if not owners:
         raise SystemExit("No owners provided and DISTINGUISHED_OWNERS is empty")
 
-    since_date = calculate_since_date(args.time_range)
-
     for owner in owners:
         repos = [args.repo] if args.repo else fetch_repos_for_owner(owner, token)
+        status_logger.info("owner=%s repo=* stage=owner_start status=begin", owner)
         for repo in repos:
+            logger.info("Processing %s/%s (force_refresh=%s)", owner, repo, args.force_refresh)
             collect_for_repo(
                 session=session,
                 owner=owner,
                 repo=repo,
                 token=token,
-                time_range=args.time_range,
-                since_date=since_date,
-                full_history=args.full_history,
                 force_refresh=args.force_refresh,
             )
+        status_logger.info("owner=%s repo=* stage=owner_done status=ok", owner)
 
 
 if __name__ == "__main__":

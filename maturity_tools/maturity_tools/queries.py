@@ -2,6 +2,9 @@
 repo_info_query = """
 query($owner: String!, $repo: String!) {
   repository(owner: $owner, name: $repo) {
+    createdAt
+    updatedAt
+    isArchived
     defaultBranchRef {
       name
     }
@@ -14,6 +17,12 @@ query($owner: String!, $repo: String!) {
       totalCount
     }
     closedIssues: issues(states: CLOSED) {
+      totalCount
+    }
+    pullRequests(states: OPEN) {
+      totalCount
+    }
+    closedPullRequests: pullRequests(states: CLOSED) {
       totalCount
     }
   }
@@ -150,7 +159,7 @@ query($owner: String!, $repo: String!, $first_issues: Int!, $after_issues: Strin
 """
 
 pr_query = """
-query($owner: String!, $repo: String!, $first_prs: Int!, $after_prs: String, $since: DateTime) {
+query($owner: String!, $repo: String!, $first_prs: Int!, $after_prs: String) {
   repository(owner: $owner, name: $repo) {
     pullRequests(first: $first_prs, after: $after_prs, states: [OPEN, CLOSED, MERGED], orderBy: {field: CREATED_AT, direction: DESC}) {
       edges {

@@ -1,8 +1,12 @@
 """This module contains functions to interact with the GitHub API."""
+import logging
 import requests
 from typing import Any, Dict, Optional
 from maturity_tools.queries import branches_query, commits_query, releases_query, issues_query, pr_query
 import pandas as pd
+
+
+logger = logging.getLogger("maturity_tools.github_call")
 
 
 
@@ -29,7 +33,7 @@ def github_api_call(query: str, variables: dict, GITHUB_TOKEN):
         data = response.json()
 
         if 'errors' in data:
-            print(f"GraphQL errors: {data['errors']}")
+            logger.error("GraphQL errors: %s", data["errors"])
             return None
     except Exception as e:
         raise # we only handle if it makes sense.
@@ -67,10 +71,10 @@ def process_branches(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
             after_cursor_branches = page_info_branches['endCursor']
             has_next_page_branches = page_info_branches['hasNextPage']
         else:
-            print("Error: Could not retrieve branch data or unexpected data structure.")
+            logger.error("Could not retrieve branch data or unexpected data structure")
             break
 
-    print(f"Fetched details for {len(all_branches_data)} branches.")
+    logger.info("Fetched details for %s branches", len(all_branches_data))
 
     # Create a pandas DataFrame from the collected data
     df_branches = pd.DataFrame(all_branches_data)
@@ -97,10 +101,10 @@ def process_commits(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
             after_cursor = page_info['endCursor']
             has_next_page = page_info['hasNextPage']
         else:
-            print("Error: Could not retrieve commit data or unexpected data structure.")
+            logger.error("Could not retrieve commit data or unexpected data structure")
             break
 
-    print(f"Fetched {len(all_commits)} commits.")
+    logger.info("Fetched %s commits", len(all_commits))
 
     # Create a pandas DataFrame from the collected data
     commit_data_list = []
@@ -120,7 +124,7 @@ def process_commits(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
         }
         commit_data_list.append(commit_data)
 
-    print(f"Extracted data for {len(commit_data_list)} commits.")
+    logger.info("Extracted data for %s commits", len(commit_data_list))
     df_commits = pd.DataFrame(commit_data_list)
     return df_commits
 
@@ -134,7 +138,7 @@ def process_releases(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
 
     while has_next_page_releases:
         variables.update({"after_releases": after_cursor_releases})
-        print("Fetching releases with cursor:", after_cursor_releases) # Optional: to show progress
+        logger.debug("Fetching releases page with cursor=%s", after_cursor_releases)
         data = github_api_call(releases_query, variables, GITHUB_TOKEN)
 
         if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'releases' in data['data']['repository']:
@@ -144,11 +148,11 @@ def process_releases(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
             after_cursor_releases = page_info_releases['endCursor']
             has_next_page_releases = page_info_releases['hasNextPage']
         else:
-            print("Error: Could not retrieve release data or unexpected data structure.")
-            print("Response data:", data)  # Debug print
+            logger.error("Could not retrieve release data or unexpected data structure")
+            logger.debug("Response data: %s", data)
             break
 
-    print(f"Fetched {len(all_releases)} releases.")
+    logger.info("Fetched %s releases", len(all_releases))
 
     # process 'all_releases' to extract release dates and total download counts per release
     release_data_list = []
@@ -168,9 +172,9 @@ def process_releases(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
 
     # Create a pandas DataFrame from the collected data
     df_releases = pd.DataFrame(release_data_list)
-    print(f"Extracted data for {len(df_releases)} releases.")
-    print("Releases data preview:")
-    print(df_releases.head() if not df_releases.empty else "No releases found")
+    logger.info("Extracted data for %s releases", len(df_releases))
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Releases data preview: %s", df_releases.head().to_dict("records") if not df_releases.empty else [])
     # Convert 'created_at' to datetime objects
     if not df_releases.empty:
         df_releases['created_at'] = pd.to_datetime(df_releases['created_at'])
@@ -178,6 +182,16 @@ def process_releases(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
 
 
 def process_issues(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
+    ISSUE_COLUMNS = [
+        "id",
+        "createdAt",
+        "closedAt",
+        "state",
+        "author_login",
+        "first_comment_createdAt",
+        "first_comment_author",
+        "labels",
+    ]
     all_issues = []
     after_cursor_issues = None
     has_next_page_issues = True
@@ -196,10 +210,10 @@ def process_issues(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
             after_cursor_issues = page_info_issues['endCursor']
             has_next_page_issues = page_info_issues['hasNextPage']
         else:
-            print("Error: Could not retrieve issue data or unexpected data structure.")
+            logger.error("Could not retrieve issue data or unexpected data structure")
             break
 
-    print(f"Fetched {len(all_issues)} issues.")
+    logger.info("Fetched %s issues", len(all_issues))
 
     # lets unpack them and create a dataframe
     issue_data_list = []
@@ -216,17 +230,31 @@ def process_issues(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
 
         issue_data_list.append({
             'id': issue_node['id'],
-            'createdAt': pd.to_datetime(issue_node['createdAt']),
-            'closedAt': pd.to_datetime(issue_node['closedAt']) if issue_node['closedAt'] else None,
+            'createdAt': pd.to_datetime(issue_node['createdAt'], utc=True),
+            'closedAt': pd.to_datetime(issue_node['closedAt'], utc=True) if issue_node['closedAt'] else None,
             'state': issue_node['state'],
             'author_login': issue_node['author']['login'] if issue_node['author'] else None,
-            'first_comment_createdAt': pd.to_datetime(first_comment) if first_comment else None,
+            'first_comment_createdAt': pd.to_datetime(first_comment, utc=True) if first_comment else None,
             'first_comment_author': first_comment_author,
             'labels': labels
         })
-    return pd.DataFrame(issue_data_list)
+
+    # Ensure stable schema even when there are zero issues (pd.DataFrame([]) has no columns).
+    df_issues = pd.DataFrame(issue_data_list)
+    return df_issues.reindex(columns=ISSUE_COLUMNS)
 
 def process_prs(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
+    PR_COLUMNS = [
+        "id",
+        "createdAt",
+        "mergedAt",
+        "closedAt",
+        "state",
+        "author_login",
+        "first_comment_createdAt",
+        "first_comment_author",
+        "labels",
+    ]
     all_prs = []
     after_cursor_prs = None
     has_next_page_prs = True
@@ -245,8 +273,10 @@ def process_prs(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
             after_cursor_prs = page_info_prs['endCursor']
             has_next_page_prs = page_info_prs['hasNextPage']
         else:
-            print("Error: Could not retrieve PR data or unexpected data structure.")
+            logger.error("Could not retrieve PR data or unexpected data structure")
             break
+
+    logger.info("Fetched %s pull requests", len(all_prs))
 
     pr_data_list = []
     for pr_edge in all_prs:
@@ -262,13 +292,16 @@ def process_prs(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
 
         pr_data_list.append({
             'id': pr_node['id'],
-            'createdAt': pd.to_datetime(pr_node['createdAt']),
-            'mergedAt': pd.to_datetime(pr_node['mergedAt']) if pr_node['mergedAt'] else None,
-            'closedAt': pd.to_datetime(pr_node['closedAt']) if pr_node['closedAt'] else None,
+            'createdAt': pd.to_datetime(pr_node['createdAt'], utc=True),
+            'mergedAt': pd.to_datetime(pr_node['mergedAt'], utc=True) if pr_node['mergedAt'] else None,
+            'closedAt': pd.to_datetime(pr_node['closedAt'], utc=True) if pr_node['closedAt'] else None,
             'state': pr_node['state'],
             'author_login': pr_node['author']['login'] if pr_node['author'] else None,
-            'first_comment_createdAt': pd.to_datetime(first_comment_pr) if first_comment_pr else None,
+            'first_comment_createdAt': pd.to_datetime(first_comment_pr, utc=True) if first_comment_pr else None,
             'first_comment_author': first_comment_author_pr,
             'labels': labels_pr
         })
-    return pd.DataFrame(pr_data_list)
+
+    # Ensure stable schema even when there are zero PRs (pd.DataFrame([]) has no columns).
+    df_prs = pd.DataFrame(pr_data_list)
+    return df_prs.reindex(columns=PR_COLUMNS)

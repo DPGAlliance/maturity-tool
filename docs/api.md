@@ -11,9 +11,17 @@ Authorization: Bearer <API_KEY>
 
 Set `API_KEY` in `.env`.
 
+Docker secrets are also supported via `API_KEY_FILE=/run/secrets/api_key`.
+
 ## Run locally
 ```bash
-uvicorn api.main:app --reload
+poetry -C dpg_butler_api install
+poetry -C dpg_butler_api run python -m uvicorn dpg_butler_api.main:app --reload
+```
+
+## Run with Docker
+```bash
+docker compose up -d --build
 ```
 
 ## Endpoints
@@ -44,6 +52,10 @@ Latest metrics for each repo in the org.
 `GET /orgs/{owner}/summary` (latest org summary)
 
 `GET /orgs/{owner}/summaries?limit=20&offset=0`
+
+`POST /repos/{owner}/{repo}/summary`
+
+`POST /orgs/{owner}/summary`
 
 ## Response shape (nested metrics)
 ```json

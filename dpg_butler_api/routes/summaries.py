@@ -3,8 +3,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 
-from api.deps import get_db_session, require_api_key
-from api.schemas import SummaryOut
+from dpg_butler_api.deps import get_db_session, require_api_key
+from dpg_butler_api.schemas import SummaryIn, SummaryOut
 from storage.models import Repo, Summary
 
 
@@ -145,3 +145,69 @@ def list_org_summaries(
         )
         for summary in summaries
     ]
+
+
+@router.post("/repos/{owner}/{repo}/summary", response_model=SummaryOut)
+def create_repo_summary(
+    owner: str,
+    repo: str,
+    payload: SummaryIn,
+    session=Depends(get_db_session),
+):
+    repo_obj = _repo_lookup(session, owner, repo)
+    summary = Summary(
+        repo_id=repo_obj.id,
+        owner=owner,
+        summary_scope="repo",
+        run_id=payload.run_id,
+        model=payload.model,
+        prompt_version=payload.prompt_version,
+        summary_text=payload.summary_text,
+        metadata_json=payload.metadata_json,
+    )
+    session.add(summary)
+    session.commit()
+    return SummaryOut(
+        id=summary.id,
+        owner=summary.owner,
+        repo=repo_obj.name,
+        summary_scope=summary.summary_scope,
+        run_id=summary.run_id,
+        created_at=summary.created_at,
+        model=summary.model,
+        prompt_version=summary.prompt_version,
+        summary_text=summary.summary_text,
+        metadata_json=summary.metadata_json,
+    )
+
+
+@router.post("/orgs/{owner}/summary", response_model=SummaryOut)
+def create_org_summary(
+    owner: str,
+    payload: SummaryIn,
+    session=Depends(get_db_session),
+):
+    summary = Summary(
+        repo_id=None,
+        owner=owner,
+        summary_scope="org",
+        run_id=payload.run_id,
+        model=payload.model,
+        prompt_version=payload.prompt_version,
+        summary_text=payload.summary_text,
+        metadata_json=payload.metadata_json,
+    )
+    session.add(summary)
+    session.commit()
+    return SummaryOut(
+        id=summary.id,
+        owner=summary.owner,
+        repo=None,
+        summary_scope=summary.summary_scope,
+        run_id=summary.run_id,
+        created_at=summary.created_at,
+        model=summary.model,
+        prompt_version=summary.prompt_version,
+        summary_text=summary.summary_text,
+        metadata_json=summary.metadata_json,
+    )

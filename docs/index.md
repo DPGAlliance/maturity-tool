@@ -12,6 +12,7 @@ These docs cover the new storage/cache layer and scheduled refresh workflows.
 - Cache policy and metrics snapshots.
 - Refresh script options.
 - API endpoints and auth.
+- Summary generation workflow.
 - Planned changes to the storage layer.
 
 ## What Is Not Documented Yet

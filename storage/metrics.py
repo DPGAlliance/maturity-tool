@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from storage.models import Metric
 
+import logging
+
+logger = logging.getLogger("storage.metrics")
+
 
 def add_metric(session, run_id: int, scope: str, name: str, value):
     value_float = None
@@ -30,4 +34,14 @@ def add_metric(session, run_id: int, scope: str, name: str, value):
         value_json=value_json,
     )
     session.add(metric)
+    logger.info(
+        "Added metric: %s/%s = %s (int=%s float=%s text=%s json=%s)",
+        scope,
+        name,
+        value,
+        value_int,
+        value_float,
+        value_text,
+        value_json,
+    )
     session.commit()

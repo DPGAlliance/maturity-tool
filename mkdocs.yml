@@ -4,6 +4,7 @@ nav:
   - Storage: storage.md
   - API: api.md
   - Scripts: scripts.md
+  - Summaries: summaries.md
   - Roadmap: roadmap.md
 theme:
   name: mkdocs

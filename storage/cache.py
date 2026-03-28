@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import logging
+import math
+import time
 from typing import Iterable
 
 import pandas as pd
 from sqlalchemy import select
+from sqlalchemy.sql import func
 
 from storage.models import (
     Branch,
@@ -36,21 +40,32 @@ def get_or_create_repo(session, owner: str, name: str, default_branch: str | Non
 def create_run(
     session,
     repo_id: int,
-    time_range: str | None,
-    since_date: datetime | None,
     source: str | None,
     notes: str | None = None,
 ) -> Run:
     run = Run(
         repo_id=repo_id,
-        time_range=time_range,
-        since_date=since_date,
         source=source,
         notes=notes,
     )
     session.add(run)
     session.commit()
     return run
+
+
+def _to_naive_utc(dt: datetime | None) -> datetime | None:
+    """Return a timezone-naive UTC datetime.
+
+    We currently treat timezone as out-of-scope for cache freshness and only
+    care about *days*. To avoid "offset-naive vs offset-aware" comparison
+    errors across DB backends, we normalize timestamps to naive UTC for reads
+    and writes.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def is_cache_fresh(session, repo_id: int, entity_type: str, max_age_days: int = 7) -> bool:
@@ -60,10 +75,38 @@ def is_cache_fresh(session, repo_id: int, entity_type: str, max_age_days: int = 
             FetchLog.entity_type == entity_type,
         )
     ).scalar_one_or_none()
-    if not fetch_log:
+    if not fetch_log or not fetch_log.fetched_at:
         return False
-    threshold = datetime.utcnow() - timedelta(days=max_age_days)
-    return fetch_log.fetched_at >= threshold
+
+    fetched_at = _to_naive_utc(fetch_log.fetched_at)
+    if not fetched_at:
+        return False
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    threshold = now - timedelta(days=max_age_days)
+    return fetched_at >= threshold
+
+
+def has_cache_entry(session, repo_id: int) -> bool:
+    """Return True if this repo has any cached fetch timestamps."""
+    return (
+        session.execute(
+            select(func.count(FetchLog.id)).where(FetchLog.repo_id == repo_id)
+        ).scalar_one()
+        > 0
+    )
+
+
+def get_last_fetch_at(session, repo_id: int) -> datetime | None:
+    """Return the latest fetch timestamp across all entity types for a repo.
+
+    Returned datetime is normalized to timezone-naive UTC for consistent display
+    and comparisons.
+    """
+    latest = session.execute(
+        select(func.max(FetchLog.fetched_at)).where(FetchLog.repo_id == repo_id)
+    ).scalar_one_or_none()
+    return _to_naive_utc(latest)
 
 
 def record_fetch(session, repo_id: int, entity_type: str) -> None:
@@ -73,15 +116,49 @@ def record_fetch(session, repo_id: int, entity_type: str) -> None:
             FetchLog.entity_type == entity_type,
         )
     ).scalar_one_or_none()
+
+    # Store UTC-aware timestamps in the DB (models use timezone-aware columns),
+    # but compare/display using timezone-naive UTC (see _to_naive_utc).
+    now = datetime.now(timezone.utc)
     if fetch_log:
-        fetch_log.fetched_at = datetime.utcnow()
+        fetch_log.fetched_at = now
         session.add(fetch_log)
     else:
-        session.add(FetchLog(repo_id=repo_id, entity_type=entity_type))
+        session.add(FetchLog(repo_id=repo_id, entity_type=entity_type, fetched_at=now))
     session.commit()
 
 
-def _upsert_all(session, rows: Iterable, model, key_fields: tuple[str, ...]) -> None:
+def _iter_batches(items: list[dict], batch_size: int) -> Iterable[list[dict]]:
+    for i in range(0, len(items), batch_size):
+        yield items[i : i + batch_size]
+
+
+def _format_duration(seconds: float) -> str:
+    total_seconds = int(round(seconds))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
+def _upsert_all(
+    session,
+    rows: Iterable,
+    model,
+    key_fields: tuple[str, ...],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+    entity_type: str | None = None,
+) -> None:
     rows = list(rows)
     if not rows:
         return
@@ -100,37 +177,55 @@ def _upsert_all(session, rows: Iterable, model, key_fields: tuple[str, ...]) -> 
     if not row_dicts:
         return
 
+    batch_size = 1000
     dialect = session.bind.dialect.name
-    if dialect == "sqlite":
-        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    status_logger = logging.getLogger("refresh.status")
+    total_rows = len(row_dicts)
+    total_batches = math.ceil(total_rows / batch_size)
+    log_batches = entity_type in {"commits", "issues", "prs"} and owner and repo
 
-        stmt = sqlite_insert(model).values(row_dicts)
-        update_cols = {
-            col: getattr(stmt.excluded, col)
-            for col in columns
-            if col not in key_fields
-        }
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[getattr(model, field) for field in key_fields],
-            set_=update_cols,
-        )
-        session.execute(stmt)
-    elif dialect == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
+    for batch_index, batch in enumerate(_iter_batches(row_dicts, batch_size), start=1):
+        if log_batches:
+            status_logger.info(
+                "owner=%s repo=%s stage=%s batch=%s/%s rows=%s total_rows=%s status=start",
+                owner,
+                repo,
+                entity_type,
+                batch_index,
+                total_batches,
+                len(batch),
+                total_rows,
+            )
+            batch_start = time.monotonic()
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        stmt = pg_insert(model).values(row_dicts)
-        update_cols = {
-            col: getattr(stmt.excluded, col)
-            for col in columns
-            if col not in key_fields
-        }
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[getattr(model, field) for field in key_fields],
-            set_=update_cols,
-        )
-        session.execute(stmt)
-    else:
-        session.execute(model.__table__.insert(), row_dicts)
+            stmt = pg_insert(model).values(batch)
+            update_cols = {
+                col: getattr(stmt.excluded, col)
+                for col in columns
+                if col not in key_fields
+            }
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[getattr(model, field) for field in key_fields],
+                set_=update_cols,
+            )
+            session.execute(stmt)
+        else:
+            session.execute(model.__table__.insert(), batch)
+
+        if log_batches:
+            status_logger.info(
+                "owner=%s repo=%s stage=%s batch=%s/%s rows=%s total_rows=%s status=ok duration=%s",
+                owner,
+                repo,
+                entity_type,
+                batch_index,
+                total_batches,
+                len(batch),
+                total_rows,
+                _format_duration(time.monotonic() - batch_start),
+            )
 
     session.commit()
 
@@ -146,7 +241,14 @@ def _clean_value(value):
     return value
 
 
-def upsert_commits(session, repo_id: int, commits: Iterable[dict]) -> None:
+def upsert_commits(
+    session,
+    repo_id: int,
+    commits: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         Commit(
             repo_id=repo_id,
@@ -159,10 +261,25 @@ def upsert_commits(session, repo_id: int, commits: Iterable[dict]) -> None:
         )
         for item in commits
     ]
-    _upsert_all(session, rows, Commit, ("repo_id", "oid"))
+    _upsert_all(
+        session,
+        rows,
+        Commit,
+        ("repo_id", "oid"),
+        owner=owner,
+        repo=repo,
+        entity_type="commits",
+    )
 
 
-def upsert_branches(session, repo_id: int, branches: Iterable[dict]) -> None:
+def upsert_branches(
+    session,
+    repo_id: int,
+    branches: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         Branch(
             repo_id=repo_id,
@@ -175,7 +292,14 @@ def upsert_branches(session, repo_id: int, branches: Iterable[dict]) -> None:
     _upsert_all(session, rows, Branch, ("repo_id", "name"))
 
 
-def upsert_releases(session, repo_id: int, releases: Iterable[dict]) -> None:
+def upsert_releases(
+    session,
+    repo_id: int,
+    releases: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         Release(
             repo_id=repo_id,
@@ -189,7 +313,14 @@ def upsert_releases(session, repo_id: int, releases: Iterable[dict]) -> None:
     _upsert_all(session, rows, Release, ("repo_id", "tag_name"))
 
 
-def upsert_issues(session, repo_id: int, issues: Iterable[dict]) -> None:
+def upsert_issues(
+    session,
+    repo_id: int,
+    issues: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         Issue(
             repo_id=repo_id,
@@ -204,10 +335,25 @@ def upsert_issues(session, repo_id: int, issues: Iterable[dict]) -> None:
         )
         for item in issues
     ]
-    _upsert_all(session, rows, Issue, ("repo_id", "github_id"))
+    _upsert_all(
+        session,
+        rows,
+        Issue,
+        ("repo_id", "github_id"),
+        owner=owner,
+        repo=repo,
+        entity_type="issues",
+    )
 
 
-def upsert_prs(session, repo_id: int, prs: Iterable[dict]) -> None:
+def upsert_prs(
+    session,
+    repo_id: int,
+    prs: Iterable[dict],
+    *,
+    owner: str | None = None,
+    repo: str | None = None,
+) -> None:
     rows = [
         PullRequest(
             repo_id=repo_id,
@@ -223,14 +369,19 @@ def upsert_prs(session, repo_id: int, prs: Iterable[dict]) -> None:
         )
         for item in prs
     ]
-    _upsert_all(session, rows, PullRequest, ("repo_id", "github_id"))
+    _upsert_all(
+        session,
+        rows,
+        PullRequest,
+        ("repo_id", "github_id"),
+        owner=owner,
+        repo=repo,
+        entity_type="prs",
+    )
 
 
-def get_cached_commits(session, repo_id: int, since_date=None):
-    query = select(Commit).where(Commit.repo_id == repo_id)
-    if since_date is not None:
-        query = query.where(Commit.authored_date >= since_date)
-    return session.execute(query).scalars().all()
+def get_cached_commits(session, repo_id: int):
+    return session.execute(select(Commit).where(Commit.repo_id == repo_id)).scalars().all()
 
 
 def get_cached_branches(session, repo_id: int):
@@ -239,22 +390,13 @@ def get_cached_branches(session, repo_id: int):
     ).scalars().all()
 
 
-def get_cached_releases(session, repo_id: int, since_date=None):
-    query = select(Release).where(Release.repo_id == repo_id)
-    if since_date is not None:
-        query = query.where(Release.created_at >= since_date)
-    return session.execute(query).scalars().all()
+def get_cached_releases(session, repo_id: int):
+    return session.execute(select(Release).where(Release.repo_id == repo_id)).scalars().all()
 
 
-def get_cached_issues(session, repo_id: int, since_date=None):
-    query = select(Issue).where(Issue.repo_id == repo_id)
-    if since_date is not None:
-        query = query.where(Issue.created_at >= since_date)
-    return session.execute(query).scalars().all()
+def get_cached_issues(session, repo_id: int):
+    return session.execute(select(Issue).where(Issue.repo_id == repo_id)).scalars().all()
 
 
-def get_cached_prs(session, repo_id: int, since_date=None):
-    query = select(PullRequest).where(PullRequest.repo_id == repo_id)
-    if since_date is not None:
-        query = query.where(PullRequest.created_at >= since_date)
-    return session.execute(query).scalars().all()
+def get_cached_prs(session, repo_id: int):
+    return session.execute(select(PullRequest).where(PullRequest.repo_id == repo_id)).scalars().all()

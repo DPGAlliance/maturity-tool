@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
@@ -10,6 +10,10 @@ except ImportError:  # pragma: no cover
     JSON = None
 
 Base = declarative_base()
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def json_type():
@@ -25,7 +29,7 @@ class Repo(Base):
     owner: Mapped[str] = mapped_column(String(200), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     default_branch: Mapped[str | None] = mapped_column(String(200))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     runs = relationship("Run", back_populates="repo", cascade="all, delete-orphan")
     summaries = relationship("Summary", back_populates="repo", cascade="all, delete-orphan")
@@ -38,9 +42,7 @@ class Run(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), nullable=False)
-    run_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    time_range: Mapped[str | None] = mapped_column(String(50))
-    since_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    run_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     source: Mapped[str | None] = mapped_column(String(50))
     notes: Mapped[str | None] = mapped_column(Text)
 
@@ -54,7 +56,7 @@ class FetchLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     __table_args__ = (UniqueConstraint("repo_id", "entity_type", name="uq_fetch_repo_entity"),)
 
@@ -159,7 +161,7 @@ class Summary(Base):
     owner: Mapped[str] = mapped_column(String(200), nullable=False)
     summary_scope: Mapped[str] = mapped_column(String(20), nullable=False)
     run_id: Mapped[int | None] = mapped_column(ForeignKey("runs.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     model: Mapped[str | None] = mapped_column(String(200))
     prompt_version: Mapped[str | None] = mapped_column(String(100))
     summary_text: Mapped[str] = mapped_column(Text, nullable=False)

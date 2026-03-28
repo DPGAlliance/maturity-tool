@@ -6,15 +6,10 @@ from sqlalchemy.orm import sessionmaker
 from storage.models import Base
 
 
-def default_database_url() -> str:
-    db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "maturity.db"))
-    return f"sqlite:///{db_path}"
-
-
 def get_engine(database_url: str | None = None):
-    db_url = database_url or os.getenv("DATABASE_URL", default_database_url())
-    if db_url.startswith("sqlite"):
-        return create_engine(db_url, connect_args={"check_same_thread": False})
+    db_url = database_url or os.getenv("DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("DATABASE_URL is required (Postgres only)")
     return create_engine(db_url)
 
 

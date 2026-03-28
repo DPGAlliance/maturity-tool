@@ -58,8 +58,6 @@ cover/
 # Django stuff:
 *.log
 local_settings.py
-db.sqlite3
-db.sqlite3-journal
 
 # Flask stuff:
 instance/
@@ -120,6 +118,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+.env
 .venv
 env/
 venv/
@@ -129,6 +128,10 @@ venv.bak/
 
 # Streamlit secrets
 .streamlit/secrets.toml
+
+# Docker secrets (file-based, not committed)
+secrets/*
+!secrets/README.md
 
 # Spyder project settings
 .spyderproject
@@ -180,8 +183,7 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # Database
-*.sqlite
 *.db
-

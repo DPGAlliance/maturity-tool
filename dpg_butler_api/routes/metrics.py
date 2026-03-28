@@ -3,9 +3,19 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 
-from api.deps import get_db_session, require_api_key
-from api.schemas import MetricsHistoryOut, MetricsOut, RunOut
+from dpg_butler_api.deps import get_db_session, require_api_key
+from dpg_butler_api.schemas import MetricsHistoryOut, MetricsOut, RunOut
 from storage.models import Metric, Repo, Run
+import logging
+
+logger = logging.getLogger("dpg_butler_api")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    _formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
+    _handler.setFormatter(_formatter)
+    logger.addHandler(_handler)
 
 
 router = APIRouter(tags=["metrics"], dependencies=[Depends(require_api_key)])
@@ -59,19 +69,19 @@ def get_repo_metrics(
         ).scalar_one_or_none()
     else:
         run = _get_latest_run(session, repo_obj.id)
+    logger.info(f"Selected run for {owner}/{repo}: {run.id if run else 'None'}")
 
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
     metrics = session.execute(select(Metric).where(Metric.run_id == run.id)).scalars().all()
+    logger.info(f"Metrics for {owner}/{repo} run {run.id}: {len(metrics)} metrics found")
     return MetricsOut(
         owner=repo_obj.owner,
         repo=repo_obj.name,
         run=RunOut(
             id=run.id,
             run_started_at=run.run_started_at,
-            time_range=run.time_range,
-            since_date=run.since_date,
         ),
         metrics=_metrics_by_scope(metrics),
     )
@@ -113,8 +123,6 @@ def get_repo_metrics_history(
                 run=RunOut(
                     id=run.id,
                     run_started_at=run.run_started_at,
-                    time_range=run.time_range,
-                    since_date=run.since_date,
                 ),
                 metrics=_metrics_by_scope(metrics_by_run.get(run.id, [])),
             )
@@ -146,8 +154,6 @@ def get_org_metrics(
                 run=RunOut(
                     id=run.id,
                     run_started_at=run.run_started_at,
-                    time_range=run.time_range,
-                    since_date=run.since_date,
                 ),
                 metrics=_metrics_by_scope(metrics),
             )
