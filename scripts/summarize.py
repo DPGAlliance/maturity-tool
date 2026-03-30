@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import pandas as pd
 from storage.logging_config import configure_logging
+from storage.cache import _to_naive_utc
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -156,13 +157,15 @@ def should_summarize(
     if force or not previous_summary:
         return True, ["forced" if force else "no previous summary"]
 
-    previous_created_at = pd.to_datetime(previous_summary.get("created_at"))
-    if previous_created_at:
-        now = datetime.now()
-        LOGGER.info("Previous summary created at %s NOW: %s", previous_created_at, now)
-        age_days = (now - previous_created_at).days
-        if age_days >= max_age_days:
-            return True, [f"summary age {age_days} days"]
+    previous_created_at = pd.to_datetime(previous_summary.get("created_at"), utc=True, errors="coerce")
+    if not pd.isna(previous_created_at):
+        previous_created_at = _to_naive_utc(previous_created_at)
+        if previous_created_at is not None:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            LOGGER.info("Previous summary created at %s NOW: %s", previous_created_at, now)
+            age_days = (now - previous_created_at).days
+            if age_days >= max_age_days:
+                return True, [f"summary age {age_days} days"]
 
     if previous_metrics:
         drift, reasons = has_drift(latest_metrics.get("metrics", {}), previous_metrics.get("metrics", {}))
@@ -241,7 +244,31 @@ def summarize_repo(
     store: bool = True,
 ) -> Optional[str]:
     STATUS_LOGGER.info("owner=%s repo=%s stage=summary status=start", owner, repo)
-    latest_metrics = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics")
+    metrics_url = f"{base_url}/repos/{owner}/{repo}/metrics"
+    try:
+        latest_metrics = get_json(session, metrics_url)
+    except RuntimeError as exc:
+        message = str(exc)
+        if "404" in message and "Run not found" in message:
+            STATUS_LOGGER.info(
+                "owner=%s repo=%s stage=summary status=skip reason=missing_run",
+                owner,
+                repo,
+            )
+            return None
+        if "404" in message and "Repo not found" in message:
+            STATUS_LOGGER.info(
+                "owner=%s repo=%s stage=summary status=skip reason=repo_not_found",
+                owner,
+                repo,
+            )
+            return None
+        STATUS_LOGGER.info(
+            "owner=%s repo=%s stage=summary status=error reason=metrics_fetch_failed",
+            owner,
+            repo,
+        )
+        raise
     history = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics/history?limit={history_limit}")
 
     latest_run_id = latest_metrics.get("run", {}).get("id")
@@ -414,32 +441,48 @@ def main():
     if args.owner:
         repos = get_json(session, f"{args.base_url.rstrip('/')}/repos?owner={args.owner}")
         for repo_entry in repos:
-            summarize_repo(
+            try:
+                summarize_repo(
+                    session,
+                    client,
+                    args.base_url.rstrip("/"),
+                    repo_entry["owner"],
+                    repo_entry["name"],
+                    repo_prompt,
+                    args.model,
+                    args.history,
+                    args.max_age_days,
+                    args.force,
+                    github_token,
+                    not args.no_store, # no_store flag true means store=False, so we invert it here to pass the correct value
+                )
+            except Exception:
+                STATUS_LOGGER.info(
+                    "owner=%s repo=%s stage=summary status=error reason=unexpected_exception",
+                    repo_entry["owner"],
+                    repo_entry["name"],
+                )
+                LOGGER.exception("Summary failed for %s/%s", repo_entry["owner"], repo_entry["name"])
+                continue
+        try:
+            summarize_org(
                 session,
                 client,
                 args.base_url.rstrip("/"),
-                repo_entry["owner"],
-                repo_entry["name"],
-                repo_prompt,
+                args.owner,
+                org_prompt,
                 args.model,
                 args.history,
                 args.max_age_days,
                 args.force,
-                github_token,
                 not args.no_store, # no_store flag true means store=False, so we invert it here to pass the correct value
             )
-        summarize_org(
-            session,
-            client,
-            args.base_url.rstrip("/"),
-            args.owner,
-            org_prompt,
-            args.model,
-            args.history,
-            args.max_age_days,
-            args.force,
-            not args.no_store, # no_store flag true means store=False, so we invert it here to pass the correct value
-        )
+        except Exception:
+            STATUS_LOGGER.info(
+                "owner=%s repo=* stage=org_summary status=error reason=unexpected_exception",
+                args.owner,
+            )
+            LOGGER.exception("Org summary failed for %s", args.owner)
         return
 
     raise SystemExit("Provide --repo owner/name or --owner org")
