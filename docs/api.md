@@ -24,6 +24,11 @@ poetry -C dpg_butler_api run python -m uvicorn dpg_butler_api.main:app --reload
 docker compose up -d --build
 ```
 
+To enable scheduled refreshes and summaries, start the `scheduler` profile too:
+```bash
+docker compose --profile scheduler up -d --build
+```
+
 ## Endpoints
 
 ### Repos

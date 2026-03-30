@@ -24,8 +24,10 @@ Runs `refresh_cache.collect_for_repo(...)` on an interval (useful in Docker Comp
 
 When enabled (default), it also runs `scripts/summarize.py` after the refresh completes, so summaries stay in sync with the latest metrics.
 
+In Docker Compose, this is the `scheduler` profile (`refresh_scheduler` service). Start it early on servers so caches and summaries populate quickly.
+
 ### Env
-- `REFRESH_OWNERS=owner1,owner2` (recommended)
+- `REFRESH_OWNERS=owner1,owner2` (but it is recommended to leave unset; falls back to full `DISTINGUISHED_OWNERS` list if unset)
 - `REFRESH_REPO` (optional, single repo name)
 - `REFRESH_INTERVAL_DAYS` (default: `7`)
 - `REFRESH_INTERVAL_SECONDS` (optional override; primarily for testing)
@@ -39,6 +41,8 @@ Summaries (run after refresh):
 - `SUMMARY_MAX_AGE_DAYS` (optional)
 - `SUMMARY_FORCE` (optional)
 - `SUMMARY_NO_STORE` (optional)
+
+Summaries require `API_KEY` (or `API_KEY_FILE`) and `OPENAI_API_KEY` (or `OPENAI_API_KEY_FILE`).
 
 Secrets can be provided via either env vars (e.g. `GITHUB_TOKEN`) or Docker-secret style files (e.g. `GITHUB_TOKEN_FILE=/run/secrets/github_token`).
 
