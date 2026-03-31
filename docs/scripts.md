@@ -89,3 +89,18 @@ poetry run python summarize.py --owner <owner>
 - `OPENAI_API_KEY`
 - `API_KEY`
 - `GITHUB_TOKEN` (for repo descriptions)
+
+## `scripts/refresh_requirements.sh`
+Exports per-service requirements from Poetry.
+
+### Usage
+```bash
+./scripts/refresh_requirements.sh
+```
+
+### Notes
+- Requires Poetry and the `poetry-plugin-export` plugin.
+- Writes:
+  - `dpg_butler_api/requirements.txt`
+  - `data_viewer/requirements.txt`
+  - `scripts/requirements.txt`

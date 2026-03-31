@@ -14,7 +14,9 @@ services:
       retries: 10
 
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.api
     depends_on:
       db:
         condition: service_healthy
@@ -28,7 +30,9 @@ services:
     command: ["uvicorn", "dpg_butler_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   viewer:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.viewer
     depends_on:
       db:
         condition: service_healthy
@@ -42,7 +46,9 @@ services:
     command: ["streamlit", "run", "data_viewer/data_viewer/main.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
 
   refresh_scheduler:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
     profiles: ["scheduler"]
     depends_on:
       db:

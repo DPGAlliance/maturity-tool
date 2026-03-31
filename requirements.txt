@@ -9,3 +9,4 @@ uvicorn>=0.30.0
 streamlit>=1.51.0
 openai>=1.40.0
 ./maturity_tools
+pillow>=12.1.1
