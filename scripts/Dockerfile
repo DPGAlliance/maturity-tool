@@ -13,7 +13,12 @@ RUN apt-get update \
 
 COPY scripts/requirements.txt /app/scripts/requirements.txt
 
-RUN pip install --no-cache-dir -r /app/scripts/requirements.txt
+COPY maturity_tools /app/maturity_tools
+COPY storage /app/storage
+
+WORKDIR /app/scripts
+RUN pip install --no-cache-dir -r requirements.txt
+WORKDIR /app
 
 # Copy full repo because we run from source
 COPY . /app

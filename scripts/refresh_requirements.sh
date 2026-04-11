@@ -18,8 +18,8 @@ import sys
 from pathlib import Path
 
 PATTERNS = {
-    "maturity-tools": "../maturity_tools",
-    "maturity-storage": "../storage",
+    "maturity-tools": "file:///app/maturity_tools",
+    "maturity-storage": "file:///app/storage",
 }
 
 for file_path in sys.argv[1:]:
@@ -28,6 +28,11 @@ for file_path in sys.argv[1:]:
     for name, replacement in PATTERNS.items():
         text = re.sub(
             rf"({re.escape(name)}\s+@\s+)file://[^\s]+/(maturity_tools|storage)",
+            rf"\1{replacement}",
+            text,
+        )
+        text = re.sub(
+            rf"({re.escape(name)}\s+@\s+)\.\./(maturity_tools|storage)",
             rf"\1{replacement}",
             text,
         )

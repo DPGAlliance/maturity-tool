@@ -16,7 +16,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: dpg_butler_api/Dockerfile
     depends_on:
       db:
         condition: service_healthy
@@ -32,7 +32,7 @@ services:
   viewer:
     build:
       context: .
-      dockerfile: Dockerfile.viewer
+      dockerfile: data_viewer/Dockerfile
     depends_on:
       db:
         condition: service_healthy
@@ -48,7 +48,7 @@ services:
   refresh_scheduler:
     build:
       context: .
-      dockerfile: Dockerfile.scheduler
+      dockerfile: scripts/Dockerfile
     profiles: ["scheduler"]
     depends_on:
       db:

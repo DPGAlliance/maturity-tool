@@ -26,7 +26,7 @@ jsonschema-specifications==2025.9.1 ; python_version >= "3.11" and python_versio
 jsonschema==4.26.0 ; python_version >= "3.11" and python_version < "4.0"
 markdown-it-py==4.0.0 ; python_version >= "3.11" and python_version < "4.0"
 markupsafe==3.0.3 ; python_version >= "3.11" and python_version < "4.0"
-maturity-tools @ ../maturity_tools ; python_version >= "3.11" and python_version < "4.0"
+maturity-tools @ file:///app/maturity_tools ; python_version >= "3.11" and python_version < "4.0"
 mdurl==0.1.2 ; python_version >= "3.11" and python_version < "4.0"
 narwhals==2.15.0 ; python_version >= "3.11" and python_version < "4.0"
 numpy==2.4.1 ; python_version >= "3.11" and python_version < "4.0"

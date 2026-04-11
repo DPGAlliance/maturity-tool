@@ -13,7 +13,11 @@ RUN apt-get update \
 
 COPY data_viewer/requirements.txt /app/data_viewer/requirements.txt
 
-RUN pip install --no-cache-dir -r /app/data_viewer/requirements.txt
+COPY maturity_tools /app/maturity_tools
+
+WORKDIR /app/data_viewer
+RUN pip install --no-cache-dir -r requirements.txt
+WORKDIR /app
 
 # Copy full repo because we run from source
 COPY . /app

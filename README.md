@@ -10,7 +10,7 @@ They are separate so `maturity_tools` can be used as a dependency without pullin
 
 Runs as a small stack (Postgres + API + Streamlit viewer) via Docker Compose.
 
-Each service now builds from its own Dockerfile to keep dependencies isolated.
+Each service now builds from its own Dockerfile (inside the package folder) to keep dependencies isolated.
 
 ### Prereqs
 - Docker + Docker Compose

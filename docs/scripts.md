@@ -59,6 +59,11 @@ Quickly probes the API and prints status + JSON previews.
 poetry run python test_api.py --owner <org> --repo <name>
 ```
 
+Docker (reads API key from secrets file):
+```bash
+docker compose exec api sh -lc 'API_KEY="$(cat /run/secrets/api_key)" python scripts/test_api.py --owner <org> --repo <name> --base-url http://api:8000'
+```
+
 ### Options
 - `--base-url` (default: `http://localhost:8000`)
 - `--owner` (or set `API_OWNER` in `.env`)
