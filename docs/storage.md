@@ -13,12 +13,15 @@ replaced or moved later without tight coupling to the app or analyzers.
 - `storage/cache.py` : upserts, cache freshness, and basic read helpers.
 - `storage/metrics.py` : helper to store metrics as key/value records.
 
-## Database URL
-- Postgres only. `DATABASE_URL` is required.
-- `.env` is auto-loaded by the app and refresh script.
-
-Example Postgres URL:
-`DATABASE_URL=postgresql+psycopg://user:password@host:5432/dbname`
+## Database Config
+- Docker Compose uses split database settings instead of a single `DATABASE_URL`:
+  - `DB_HOST`
+  - `DB_PORT`
+  - `DB_NAME`
+  - `DB_USER`
+  - `DB_PASSWORD` or `DB_PASSWORD_FILE`
+- The Postgres container itself still uses `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD_FILE`.
+- `.env` is auto-loaded by the app and refresh script for non-secret config.
 
 ## Secrets
 Most components accept secrets via either an environment variable (e.g. `API_KEY`) or a file path via the `*_FILE` convention (e.g. `API_KEY_FILE=/run/secrets/api_key`).

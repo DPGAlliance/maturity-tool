@@ -1,9 +1,9 @@
-import os
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from storage.db import build_database_url
 from storage.models import Base
 
 config = context.config
@@ -14,7 +14,7 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    return build_database_url()
 
 
 def run_migrations_offline() -> None:

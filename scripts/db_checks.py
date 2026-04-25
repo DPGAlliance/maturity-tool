@@ -1,6 +1,4 @@
 import argparse
-import os
-
 from sqlalchemy import text
 
 from storage.db import get_engine
@@ -95,7 +93,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    engine = get_engine(os.getenv("DATABASE_URL"))
+    engine = get_engine()
 
     if args.reset_all:
         if args.confirm_reset != "RESET":

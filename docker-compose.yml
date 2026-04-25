@@ -4,7 +4,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-maturity}
       POSTGRES_USER: ${POSTGRES_USER:-maturity}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maturity}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,9 +23,14 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-maturity}:${POSTGRES_PASSWORD:-maturity}@db:5432/${POSTGRES_DB:-maturity}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-maturity}
+      DB_USER: ${POSTGRES_USER:-maturity}
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
       API_KEY_FILE: /run/secrets/api_key
     secrets:
+      - postgres_password
       - api_key
     ports:
       - "127.0.0.1:8000:8000"
@@ -37,9 +44,14 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-maturity}:${POSTGRES_PASSWORD:-maturity}@db:5432/${POSTGRES_DB:-maturity}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-maturity}
+      DB_USER: ${POSTGRES_USER:-maturity}
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
       GITHUB_TOKEN_FILE: /run/secrets/github_token
     secrets:
+      - postgres_password
       - github_token
     ports:
       - "127.0.0.1:8501:8501"
@@ -54,7 +66,11 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-maturity}:${POSTGRES_PASSWORD:-maturity}@db:5432/${POSTGRES_DB:-maturity}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-maturity}
+      DB_USER: ${POSTGRES_USER:-maturity}
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
       GITHUB_TOKEN_FILE: /run/secrets/github_token
       API_KEY_FILE: /run/secrets/api_key
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
@@ -66,6 +82,7 @@ services:
       RUN_SUMMARIES: ${RUN_SUMMARIES:-true}
       SUMMARY_BASE_URL: ${SUMMARY_BASE_URL:-http://api:8000}
     secrets:
+      - postgres_password
       - github_token
       - api_key
       - openai_api_key
@@ -75,6 +92,8 @@ volumes:
   postgres_data:
 
 secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
   api_key:
     file: ./secrets/api_key
   github_token:
