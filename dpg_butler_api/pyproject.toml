@@ -10,7 +10,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.11"
-fastapi = "^0.111.0"
+fastapi = "0.136.1"
 uvicorn = "^0.30.0"
 python-dotenv = "^1.0.1"
 sqlalchemy = "^2.0.46"

@@ -12,7 +12,7 @@ maturity-tools = {path = "../maturity_tools", develop = true}
 python-dotenv = "^1.0.1"
 sqlalchemy = "^2.0.46"
 psycopg = {version = "^3.2.0", extras = ["binary"]}
-fastapi = "^0.111.0"
+fastapi = "0.136.1"
 uvicorn = "^0.30.0"
 
 
