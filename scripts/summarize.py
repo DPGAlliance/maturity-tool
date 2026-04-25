@@ -9,6 +9,7 @@ import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 import pandas as pd
+from storage.cache import _to_naive_utc
 from storage.logging_config import configure_logging
 
 
@@ -76,6 +77,11 @@ def post_json(session: requests.Session, url: str, payload: dict) -> Any:
     if not resp.ok:
         raise RuntimeError(f"POST {url} failed: {resp.status_code} {resp.text}")
     return resp.json()
+
+
+def _is_missing_run_error(exc: Exception) -> bool:
+    message = str(exc)
+    return " 404 " in message and "Run not found" in message
 
 
 
@@ -156,13 +162,15 @@ def should_summarize(
     if force or not previous_summary:
         return True, ["forced" if force else "no previous summary"]
 
-    previous_created_at = pd.to_datetime(previous_summary.get("created_at"))
-    if previous_created_at:
-        now = datetime.now()
-        LOGGER.info("Previous summary created at %s NOW: %s", previous_created_at, now)
-        age_days = (now - previous_created_at).days
-        if age_days >= max_age_days:
-            return True, [f"summary age {age_days} days"]
+    previous_created_at = pd.to_datetime(previous_summary.get("created_at"), utc=True, errors="coerce")
+    if not pd.isna(previous_created_at):
+        previous_created_at = _to_naive_utc(previous_created_at)
+        if previous_created_at is not None:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            LOGGER.info("Previous summary created at %s NOW: %s", previous_created_at, now)
+            age_days = (now - previous_created_at).days
+            if age_days >= max_age_days:
+                return True, [f"summary age {age_days} days"]
 
     if previous_metrics:
         drift, reasons = has_drift(latest_metrics.get("metrics", {}), previous_metrics.get("metrics", {}))
@@ -239,9 +247,16 @@ def summarize_repo(
     force: bool,
     github_token: Optional[str],
     store: bool = True,
-) -> Optional[str]:
+) -> str:
     STATUS_LOGGER.info("owner=%s repo=%s stage=summary status=start", owner, repo)
-    latest_metrics = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics")
+    try:
+        latest_metrics = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics")
+    except RuntimeError as exc:
+        if _is_missing_run_error(exc):
+            LOGGER.info("[SKIP] %s/%s: missing run", owner, repo)
+            STATUS_LOGGER.info("owner=%s repo=%s stage=summary status=skip reason=missing_run", owner, repo)
+            return "skip"
+        raise
     history = get_json(session, f"{base_url}/repos/{owner}/{repo}/metrics/history?limit={history_limit}")
 
     latest_run_id = latest_metrics.get("run", {}).get("id")
@@ -264,7 +279,7 @@ def summarize_repo(
     if not should_write:
         LOGGER.info("[SKIP] %s/%s: %s", owner, repo, ", ".join(reasons))
         STATUS_LOGGER.info("owner=%s repo=%s stage=summary status=skip", owner, repo)
-        return None
+        return "skip"
 
     prompt, prompt_version = load_prompt(prompt_path)
     description = fetch_repo_description(owner, repo, github_token)
@@ -291,7 +306,7 @@ def summarize_repo(
         LOGGER.info("[NOT STORING SUMMARY FOR] %s/%s: %s, %s", owner, repo, ", ".join(reasons), str(butler_payload))
     LOGGER.info("[OK] %s/%s: %s", owner, repo, ", ".join(reasons))
     STATUS_LOGGER.info("owner=%s repo=%s stage=summary status=ok", owner, repo)
-    return summary_text
+    return "ok"
 
 
 def summarize_org(
@@ -413,32 +428,67 @@ def main():
 
     if args.owner:
         repos = get_json(session, f"{args.base_url.rstrip('/')}/repos?owner={args.owner}")
+        repo_ok = 0
+        repo_skipped = 0
+        repo_failed = 0
         for repo_entry in repos:
-            summarize_repo(
+            try:
+                result = summarize_repo(
+                    session,
+                    client,
+                    args.base_url.rstrip("/"),
+                    repo_entry["owner"],
+                    repo_entry["name"],
+                    repo_prompt,
+                    args.model,
+                    args.history,
+                    args.max_age_days,
+                    args.force,
+                    github_token,
+                    not args.no_store, # no_store flag true means store=False, so we invert it here to pass the correct value
+                )
+                if result == "ok":
+                    repo_ok += 1
+                else:
+                    repo_skipped += 1
+            except Exception:
+                repo_failed += 1
+                LOGGER.exception("Summary failed for %s/%s", repo_entry["owner"], repo_entry["name"])
+
+        org_status = "not_attempted"
+        try:
+            org_result = summarize_org(
                 session,
                 client,
                 args.base_url.rstrip("/"),
-                repo_entry["owner"],
-                repo_entry["name"],
-                repo_prompt,
+                args.owner,
+                org_prompt,
                 args.model,
                 args.history,
                 args.max_age_days,
                 args.force,
-                github_token,
                 not args.no_store, # no_store flag true means store=False, so we invert it here to pass the correct value
             )
-        summarize_org(
-            session,
-            client,
-            args.base_url.rstrip("/"),
+            org_status = "ok" if org_result else "skip"
+        except Exception:
+            org_status = "failed"
+            LOGGER.exception("Org summary failed for %s", args.owner)
+
+        LOGGER.info(
+            "[OWNER SUMMARY] %s: repo_ok=%s repo_skipped=%s repo_failed=%s org_status=%s",
             args.owner,
-            org_prompt,
-            args.model,
-            args.history,
-            args.max_age_days,
-            args.force,
-            not args.no_store, # no_store flag true means store=False, so we invert it here to pass the correct value
+            repo_ok,
+            repo_skipped,
+            repo_failed,
+            org_status,
+        )
+        STATUS_LOGGER.info(
+            "owner=%s repo=* stage=owner_summary status=ok repo_ok=%s repo_skipped=%s repo_failed=%s org_status=%s",
+            args.owner,
+            repo_ok,
+            repo_skipped,
+            repo_failed,
+            org_status,
         )
         return
 

@@ -1,5 +1,21 @@
 # Scripts
 
+## Make targets
+Use the repo `Makefile` for the common Docker Compose flows:
+
+```bash
+make build
+make build-no-cache
+make up
+make up-all
+make down
+make ps
+make logs
+make refresh-requirements
+```
+
+These targets build by Compose service name, so they automatically use the per-service Dockerfiles defined in `docker-compose.yml`.
+
 ## `scripts/refresh_cache.py`
 Refreshes cached raw data and writes a metrics snapshot for each repo.
 
@@ -101,6 +117,11 @@ Exports per-service requirements from Poetry.
 ### Usage
 ```bash
 ./scripts/refresh_requirements.sh
+```
+
+Equivalent Make target:
+```bash
+make refresh-requirements
 ```
 
 ### Notes

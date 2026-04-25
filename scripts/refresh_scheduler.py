@@ -2,6 +2,7 @@ import logging
 import os
 import subprocess
 import time
+from collections import deque
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -42,6 +43,34 @@ def _parse_owners(value: str | None) -> list[str]:
         return []
     owners = [part.strip() for part in value.split(",")]
     return [o for o in owners if o]
+
+
+def _run_logged_subprocess(cmd: list[str], *, owner: str) -> None:
+    recent_lines: deque[str] = deque(maxlen=50)
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    try:
+        for line in process.stdout:
+            rendered = line.rstrip()
+            recent_lines.append(rendered)
+            logger.info("[summarize:%s] %s", owner, rendered)
+    finally:
+        process.stdout.close()
+    returncode = process.wait()
+    if returncode != 0:
+        logger.error(
+            "Summarization failed for %s (exit=%s). Last output:\n%s",
+            owner,
+            returncode,
+            "\n".join(recent_lines) or "(no output)",
+        )
+        raise subprocess.CalledProcessError(returncode, cmd)
 
 
 def run_cycle(*, token: str, owners: list[str], repo_override: str | None, force_refresh: bool) -> None:
@@ -99,7 +128,7 @@ def run_summaries(*, owners: list[str]) -> None:
 
         logger.info(f"Summarizing owner {owner} via {base_url}")
         try:
-            subprocess.run(cmd, check=True)
+            _run_logged_subprocess(cmd, owner=owner)
         except subprocess.CalledProcessError as exc:
             logger.error(
                 "Summarization failed for %s (exit=%s). Continuing.",

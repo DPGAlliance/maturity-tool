@@ -18,7 +18,8 @@ Each service now builds from its own Dockerfile (inside the package folder) to k
 
 ### Start (local)
 ```bash
-docker compose up -d --build
+make build
+make up
 ```
 But you need to start the scheduler profile early for cache and summaries to populate, so it's recommended to use the command in the next section.
 
@@ -28,7 +29,8 @@ Start it as soon as the stack is up so the database populates quickly and summar
 It needs `GITHUB_TOKEN`, `API_KEY`, and `OPENAI_API_KEY` (or their `_FILE` variants) when summaries are enabled.
 
 ```bash
-docker compose --profile scheduler up -d --build
+make build
+make up-all
 ```
 
 ### URLs
@@ -58,8 +60,17 @@ docker compose --profile scheduler up -d --build
 
 ### Dependency exports (Poetry)
 - Per-service requirements live in `dpg_butler_api/requirements.txt`, `data_viewer/requirements.txt`, and `scripts/requirements.txt`.
-- Refresh them with `scripts/refresh_requirements.sh` after updating Poetry dependencies.
+- Refresh them with `make refresh-requirements` after updating Poetry dependencies.
 - `requirements.txt` at repo root is legacy and not used by Docker Compose.
+
+### Makefile shortcuts
+- `make build`: build `api`, `viewer`, and `refresh_scheduler`
+- `make build-no-cache`: rebuild all service images without Docker cache
+- `make up`: start `db`, `api`, and `viewer`
+- `make up-all`: start `db`, `api`, `viewer`, and `refresh_scheduler`
+- `make down`: stop the Compose stack
+- `make ps`: show service status
+- `make logs`: follow Compose logs
 
 ### Docs
 - MkDocs site: `docs/` (config in `mkdocs.yml`)
