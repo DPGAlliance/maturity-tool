@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-maturity}
       POSTGRES_USER: ${POSTGRES_USER:-maturity}
@@ -19,6 +20,7 @@ services:
     build:
       context: .
       dockerfile: dpg_butler_api/Dockerfile
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -40,6 +42,7 @@ services:
     build:
       context: .
       dockerfile: data_viewer/Dockerfile
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -61,6 +64,7 @@ services:
     build:
       context: .
       dockerfile: scripts/Dockerfile
+    restart: unless-stopped
     profiles: ["scheduler"]
     depends_on:
       db:
