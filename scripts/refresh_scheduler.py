@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
+from maturity_tools.github_call import GitHubRateLimitError
 from storage.db import get_session, init_db
 from storage.logging_config import configure_logging
 from storage.secrets import get_secret
@@ -45,6 +46,29 @@ def _parse_owners(value: str | None) -> list[str]:
     return [o for o in owners if o]
 
 
+def _sleep_for_rate_limit(exc: GitHubRateLimitError, *, owner: str, repo: str) -> None:
+    sleep_seconds = exc.sleep_seconds()
+    reset_at = exc.reset_at.isoformat() if exc.reset_at else None
+    logger.warning(
+        "GitHub rate limit paused refresh for %s/%s at stage=%s; sleeping %s until %s",
+        owner,
+        repo,
+        exc.request_name or "unknown",
+        _format_duration(sleep_seconds),
+        reset_at,
+    )
+    status_logger.info(
+        "owner=%s repo=%s stage=%s status=rate_limited sleep=%s reset_at=%s remaining=%s",
+        owner,
+        repo,
+        exc.request_name or "unknown",
+        _format_duration(sleep_seconds),
+        reset_at,
+        exc.remaining,
+    )
+    time.sleep(sleep_seconds)
+
+
 def _run_logged_subprocess(cmd: list[str], *, owner: str) -> None:
     recent_lines: deque[str] = deque(maxlen=50)
     process = subprocess.Popen(
@@ -79,21 +103,39 @@ def run_cycle(*, token: str, owners: list[str], repo_override: str | None, force
     session = get_session()
     try:
         for owner in owners:
-            repos = [repo_override] if repo_override else refresh_cache.fetch_repos_for_owner(owner, token)
-            for repo in repos:
-                logger.info(f"Refreshing {owner}/{repo} (force_refresh={force_refresh})")
+            while True:
                 try:
-                    refresh_cache.collect_for_repo(
-                        session=session,
-                        owner=owner,
-                        repo=repo,
-                        token=token,
-                        force_refresh=force_refresh,
-                    )
-                except Exception:
-                    # Keep going so a single repo doesn't block the whole cycle (and summaries).
+                    repos = [repo_override] if repo_override else refresh_cache.fetch_repos_for_owner(owner, token)
+                    break
+                except GitHubRateLimitError as exc:
                     session.rollback()
-                    logger.exception("Refresh failed for %s/%s; continuing", owner, repo)
+                    session.close()
+                    _sleep_for_rate_limit(exc, owner=owner, repo="*")
+                    session = get_session()
+            for repo in repos:
+                while True:
+                    logger.info(f"Refreshing {owner}/{repo} (force_refresh={force_refresh})")
+                    try:
+                        refresh_cache.collect_for_repo(
+                            session=session,
+                            owner=owner,
+                            repo=repo,
+                            token=token,
+                            force_refresh=force_refresh,
+                        )
+                        break
+                    except GitHubRateLimitError as exc:
+                        session.rollback()
+                        session.close()
+                        _sleep_for_rate_limit(exc, owner=owner, repo=repo)
+                        session = get_session()
+                    except Exception:
+                        # Keep going so a single repo doesn't block the whole cycle (and summaries).
+                        session.rollback()
+                        logger.exception("Refresh failed for %s/%s; continuing", owner, repo)
+                        session.close()
+                        session = get_session()
+                        break
     finally:
         session.close()
 

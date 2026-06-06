@@ -779,6 +779,7 @@ def collect_for_repo(
             repo_info_query,
             {"owner": owner, "repo": repo},
             token,
+            request_name="repo_info",
         )
         repo_info = info_result.get("data", {}).get("repository", {})
         status_logger.info(

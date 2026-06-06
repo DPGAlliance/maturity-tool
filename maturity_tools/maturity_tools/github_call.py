@@ -1,5 +1,12 @@
 """This module contains functions to interact with the GitHub API."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
+import os
+import threading
+import time
 import requests
 from typing import Any, Dict, Optional
 from maturity_tools.queries import branches_query, commits_query, releases_query, issues_query, pr_query
@@ -8,9 +15,182 @@ import pandas as pd
 
 logger = logging.getLogger("maturity_tools.github_call")
 
+GITHUB_API_HEARTBEAT_SECONDS = float(os.getenv("GITHUB_API_HEARTBEAT_SECONDS", "60"))
 
 
-def github_api_call(query: str, variables: dict, GITHUB_TOKEN):
+@dataclass
+class GitHubRateLimitError(Exception):
+    message: str
+    status_code: int | None
+    owner: str | None
+    repo: str | None
+    request_name: str | None
+    retry_after_seconds: int | None
+    reset_at: datetime | None
+    remaining: int | None
+    resource: str | None
+    request_id: str | None
+    response_body_snippet: str | None
+
+    def sleep_seconds(self) -> int:
+        if self.retry_after_seconds is not None and self.retry_after_seconds > 0:
+            return self.retry_after_seconds
+        if self.reset_at is not None:
+            return max(1, int((self.reset_at - datetime.now(timezone.utc)).total_seconds()) + 1)
+        return 60
+
+    def __str__(self) -> str:
+        location = "/".join(part for part in [self.owner, self.repo] if part)
+        request = self.request_name or "unknown"
+        parts = [f"GitHub rate limit hit during {request}"]
+        if location:
+            parts.append(f"for {location}")
+        if self.status_code is not None:
+            parts.append(f"(status={self.status_code})")
+        parts.append(f": {self.message}")
+        return " ".join(parts)
+
+
+def _header_int(headers, name: str) -> int | None:
+    value = headers.get(name)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _reset_at_from_headers(headers) -> datetime | None:
+    reset_epoch = _header_int(headers, "x-ratelimit-reset")
+    if reset_epoch is None:
+        return None
+    try:
+        return datetime.fromtimestamp(reset_epoch, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _response_text_snippet(response: requests.Response | None, limit: int = 500) -> str | None:
+    if response is None:
+        return None
+    text = (response.text or "").strip()
+    if not text:
+        return None
+    return text[:limit]
+
+
+def _is_rate_limit_response(response: requests.Response, data: dict | None = None) -> bool:
+    headers = response.headers
+    remaining = _header_int(headers, "x-ratelimit-remaining")
+    retry_after = _header_int(headers, "retry-after")
+    if remaining == 0 or retry_after is not None:
+        return True
+
+    body_text = _response_text_snippet(response) or ""
+    if "rate limit" in body_text.lower():
+        return True
+
+    if data and isinstance(data.get("errors"), list):
+        for err in data["errors"]:
+            if "rate limit" in str(err.get("message", "")).lower():
+                return True
+    return False
+
+
+def _build_rate_limit_error(
+    response: requests.Response,
+    *,
+    variables: dict,
+    request_name: str | None,
+    data: dict | None = None,
+) -> GitHubRateLimitError:
+    headers = response.headers
+    owner = variables.get("owner")
+    repo = variables.get("repo")
+    remaining = _header_int(headers, "x-ratelimit-remaining")
+    retry_after = _header_int(headers, "retry-after")
+    reset_at = _reset_at_from_headers(headers)
+    request_id = headers.get("x-github-request-id")
+    resource = headers.get("x-ratelimit-resource")
+    message = "GitHub API rate limit exceeded"
+    if data and isinstance(data.get("errors"), list) and data["errors"]:
+        message = "; ".join(str(err.get("message", message)) for err in data["errors"])
+    else:
+        snippet = _response_text_snippet(response)
+        if snippet:
+            message = snippet
+
+    error = GitHubRateLimitError(
+        message=message,
+        status_code=response.status_code,
+        owner=owner,
+        repo=repo,
+        request_name=request_name,
+        retry_after_seconds=retry_after,
+        reset_at=reset_at,
+        remaining=remaining,
+        resource=resource,
+        request_id=request_id,
+        response_body_snippet=_response_text_snippet(response),
+    )
+    logger.warning(
+        "GitHub rate limit hit request=%s owner=%s repo=%s status=%s remaining=%s retry_after=%s reset_at=%s resource=%s request_id=%s body=%s",
+        request_name or "unknown",
+        owner,
+        repo,
+        response.status_code,
+        remaining,
+        retry_after,
+        reset_at.isoformat() if reset_at else None,
+        resource,
+        request_id,
+        error.response_body_snippet,
+    )
+    return error
+
+
+def _start_request_heartbeat(request_name: str | None, variables: dict):
+    if GITHUB_API_HEARTBEAT_SECONDS <= 0:
+        return None, None
+
+    owner = variables.get("owner")
+    repo = variables.get("repo")
+    stop_event = threading.Event()
+    started_at = time.monotonic()
+
+    def heartbeat() -> None:
+        while not stop_event.wait(GITHUB_API_HEARTBEAT_SECONDS):
+            elapsed_seconds = int(time.monotonic() - started_at)
+            logger.info(
+                "Still waiting on GitHub request=%s owner=%s repo=%s elapsed=%ss",
+                request_name or "unknown",
+                owner,
+                repo,
+                elapsed_seconds,
+            )
+
+    thread = threading.Thread(target=heartbeat, name="github-api-heartbeat", daemon=True)
+    thread.start()
+    return stop_event, thread
+
+
+def _stop_request_heartbeat(stop_event, thread) -> None:
+    if stop_event is None:
+        return
+    stop_event.set()
+    if thread is not None:
+        thread.join(timeout=0.1)
+
+
+
+def github_api_call(
+    query: str,
+    variables: dict,
+    GITHUB_TOKEN,
+    *,
+    request_name: str | None = None,
+):
     """
     Make a call to the github api.
     Args:
@@ -26,17 +206,55 @@ def github_api_call(query: str, variables: dict, GITHUB_TOKEN):
         'Authorization': f'bearer {GITHUB_TOKEN}',
         'Content-Type': 'application/json'
     }
+    heartbeat_stop, heartbeat_thread = _start_request_heartbeat(request_name, variables)
 
     try:
-        response = requests.post(url, headers=headers, json={'query': query, 'variables': variables})
-        response.raise_for_status() # Raise an exception for bad status codes
+        response = requests.post(
+            url,
+            headers=headers,
+            json={'query': query, 'variables': variables},
+        )
+        if response.status_code >= 400:
+            if _is_rate_limit_response(response):
+                raise _build_rate_limit_error(
+                    response,
+                    variables=variables,
+                    request_name=request_name,
+                )
+            logger.error(
+                "GitHub API HTTP error request=%s owner=%s repo=%s status=%s request_id=%s body=%s",
+                request_name or "unknown",
+                variables.get("owner"),
+                variables.get("repo"),
+                response.status_code,
+                response.headers.get("x-github-request-id"),
+                _response_text_snippet(response),
+            )
+            response.raise_for_status() # Raise an exception for bad status codes
         data = response.json()
 
         if 'errors' in data:
-            logger.error("GraphQL errors: %s", data["errors"])
+            if _is_rate_limit_response(response, data):
+                raise _build_rate_limit_error(
+                    response,
+                    variables=variables,
+                    request_name=request_name,
+                    data=data,
+                )
+            logger.error(
+                "GraphQL errors request=%s owner=%s repo=%s errors=%s",
+                request_name or "unknown",
+                variables.get("owner"),
+                variables.get("repo"),
+                data["errors"],
+            )
             return None
-    except Exception as e:
+    except GitHubRateLimitError:
+        raise
+    except Exception:
         raise # we only handle if it makes sense.
+    finally:
+        _stop_request_heartbeat(heartbeat_stop, heartbeat_thread)
     return data
 
 def process_branches(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
@@ -49,7 +267,7 @@ def process_branches(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     while has_next_page_branches:
         variables.update({"after_branches": after_cursor_branches})
         # print("Fetching branches with cursor:", after_cursor_branches) # Optional: to show progress
-        data = github_api_call(branches_query, variables, GITHUB_TOKEN)
+        data = github_api_call(branches_query, variables, GITHUB_TOKEN, request_name="branches")
 
         if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'refs' in data['data']['repository']:
             branches_data = data['data']['repository']['refs']['edges']
@@ -110,7 +328,7 @@ def _extract_commit_rows(commit_edges) -> list[dict]:
 def fetch_commit_page(variables, GITHUB_TOKEN, *, after_cursor=None, first=100) -> tuple[list[dict], dict]:
     page_variables = dict(variables)
     page_variables.update({"first": first, "after": after_cursor})
-    data = github_api_call(commits_query, page_variables, GITHUB_TOKEN)
+    data = github_api_call(commits_query, page_variables, GITHUB_TOKEN, request_name="commits")
 
     if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'ref' in data['data']['repository'] and data['data']['repository']['ref'] and 'target' in data['data']['repository']['ref'] and data['data']['repository']['ref']['target'] and 'history' in data['data']['repository']['ref']['target']:
         history = data['data']['repository']['ref']['target']['history']
@@ -166,7 +384,7 @@ def process_releases(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     while has_next_page_releases:
         variables.update({"after_releases": after_cursor_releases})
         logger.debug("Fetching releases page with cursor=%s", after_cursor_releases)
-        data = github_api_call(releases_query, variables, GITHUB_TOKEN)
+        data = github_api_call(releases_query, variables, GITHUB_TOKEN, request_name="releases")
 
         if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'releases' in data['data']['repository']:
             releases_data = data['data']['repository']['releases']['edges']
@@ -228,7 +446,7 @@ def process_issues(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
 
     while has_next_page_issues:
         variables.update({"after_issues": after_cursor_issues})
-        data = github_api_call(issues_query, variables, GITHUB_TOKEN)
+        data = github_api_call(issues_query, variables, GITHUB_TOKEN, request_name="issues")
 
         if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'issues' in data['data']['repository']:
             issues_data = data['data']['repository']['issues']['edges']
@@ -291,7 +509,7 @@ def process_prs(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
 
     while has_next_page_prs:
         variables.update({"after_prs": after_cursor_prs})
-        data = github_api_call(pr_query, variables, GITHUB_TOKEN)
+        data = github_api_call(pr_query, variables, GITHUB_TOKEN, request_name="prs")
 
         if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'pullRequests' in data['data']['repository']:
             prs_data = data['data']['repository']['pullRequests']['edges']

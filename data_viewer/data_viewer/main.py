@@ -200,7 +200,12 @@ def main():
                 "owner": owner,
                 "repo": repo,
             }
-            info_result = github_api_call(repo_info_query, info_query_variables, GITHUB_TOKEN)
+            info_result = github_api_call(
+                repo_info_query,
+                info_query_variables,
+                GITHUB_TOKEN,
+                request_name="repo_info",
+            )
             default_branch = (
                 info_result.get("data", {})
                 .get("repository", {})
@@ -245,7 +250,12 @@ def main():
             "owner": owner,
             "repo": repo,
         }
-        info_result = github_api_call(repo_info_query, info_query_variables, GITHUB_TOKEN)
+        info_result = github_api_call(
+            repo_info_query,
+            info_query_variables,
+            GITHUB_TOKEN,
+            request_name="repo_info",
+        )
         default_branch = (
             info_result.get("data", {})
             .get("repository", {})
