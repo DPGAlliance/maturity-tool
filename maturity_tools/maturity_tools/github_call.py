@@ -60,11 +60,13 @@ def process_branches(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
                 branch_name = branch_node['name']
                 commit_count = branch_node['target']['history']['totalCount'] if branch_node['target'] and 'history' in branch_node['target'] else None
                 last_commit_date = branch_node['target']['authoredDate'] if branch_node['target'] and 'authoredDate' in branch_node['target'] else None
+                head_oid = branch_node['target']['oid'] if branch_node['target'] and 'oid' in branch_node['target'] else None
 
                 all_branches_data.append({
                     'branch_name': branch_name,
                     'total_commits': commit_count,
-                    'last_commit_date': last_commit_date
+                    'last_commit_date': last_commit_date,
+                    'head_oid': head_oid,
                 })
 
             page_info_branches = data['data']['repository']['refs']['pageInfo']
@@ -80,36 +82,14 @@ def process_branches(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     df_branches = pd.DataFrame(all_branches_data)
 
     # Convert 'last_commit_date' to datetime objects
-    df_branches['last_commit_date'] = pd.to_datetime(df_branches['last_commit_date'])
+    if not df_branches.empty:
+        df_branches['last_commit_date'] = pd.to_datetime(df_branches['last_commit_date'])
     return df_branches
 
 
-def process_commits(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
-    all_commits = []
-    after_cursor = None
-    has_next_page = True
-    # Note: since parameter is already in variables if provided for time filtering
-
-    while has_next_page:
-        variables.update({"first": 100, "after": after_cursor})
-        data = github_api_call(commits_query, variables, GITHUB_TOKEN)
-
-        if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'ref' in data['data']['repository'] and data['data']['repository']['ref'] and 'target' in data['data']['repository']['ref'] and data['data']['repository']['ref']['target'] and 'history' in data['data']['repository']['ref']['target']:
-            commits_data = data['data']['repository']['ref']['target']['history']['edges']
-            all_commits.extend(commits_data)
-            page_info = data['data']['repository']['ref']['target']['history']['pageInfo']
-            after_cursor = page_info['endCursor']
-            has_next_page = page_info['hasNextPage']
-        else:
-            logger.error("Could not retrieve commit data or unexpected data structure")
-            break
-
-    logger.info("Fetched %s commits", len(all_commits))
-
-    # Create a pandas DataFrame from the collected data
+def _extract_commit_rows(commit_edges) -> list[dict]:
     commit_data_list = []
-
-    for commit in all_commits:
+    for commit in commit_edges:
         commit_node = commit['node']
         commit_data = {
             'oid': commit_node['oid'],
@@ -124,8 +104,55 @@ def process_commits(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
         }
         commit_data_list.append(commit_data)
 
-    logger.info("Extracted data for %s commits", len(commit_data_list))
-    df_commits = pd.DataFrame(commit_data_list)
+    return commit_data_list
+
+
+def fetch_commit_page(variables, GITHUB_TOKEN, *, after_cursor=None, first=100) -> tuple[list[dict], dict]:
+    page_variables = dict(variables)
+    page_variables.update({"first": first, "after": after_cursor})
+    data = github_api_call(commits_query, page_variables, GITHUB_TOKEN)
+
+    if data and 'data' in data and data['data'] and 'repository' in data['data'] and data['data']['repository'] and 'ref' in data['data']['repository'] and data['data']['repository']['ref'] and 'target' in data['data']['repository']['ref'] and data['data']['repository']['ref']['target'] and 'history' in data['data']['repository']['ref']['target']:
+        history = data['data']['repository']['ref']['target']['history']
+        return _extract_commit_rows(history['edges']), history['pageInfo']
+
+    logger.error("Could not retrieve commit data or unexpected data structure")
+    return [], {"endCursor": None, "hasNextPage": False}
+
+
+def process_commits(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
+    all_commits = []
+    after_cursor = None
+    has_next_page = True
+    # Note: since parameter is already in variables if provided for time filtering
+
+    while has_next_page:
+        commit_rows, page_info = fetch_commit_page(
+            variables,
+            GITHUB_TOKEN,
+            after_cursor=after_cursor,
+            first=100,
+        )
+        all_commits.extend(commit_rows)
+        after_cursor = page_info['endCursor']
+        has_next_page = page_info['hasNextPage']
+
+    logger.info("Fetched %s commits", len(all_commits))
+
+    logger.info("Extracted data for %s commits", len(all_commits))
+    df_commits = pd.DataFrame(all_commits)
+    if df_commits.empty:
+        df_commits = df_commits.reindex(
+            columns=[
+                'oid',
+                'authoredDate',
+                'messageHeadline',
+                'additions',
+                'deletions',
+                'author_name',
+                'author_login',
+            ]
+        )
     return df_commits
 
 

@@ -7,7 +7,7 @@ import time
 from typing import Iterable
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.sql import func
 
 from storage.models import (
@@ -384,10 +384,43 @@ def get_cached_commits(session, repo_id: int):
     return session.execute(select(Commit).where(Commit.repo_id == repo_id)).scalars().all()
 
 
+def get_cached_commit_count(session, repo_id: int) -> int:
+    return int(
+        session.execute(
+            select(func.count(Commit.id)).where(Commit.repo_id == repo_id)
+        ).scalar_one()
+    )
+
+
+def get_existing_commit_oids(session, repo_id: int, oids: Iterable[str]) -> set[str]:
+    oid_list = [oid for oid in oids if oid]
+    if not oid_list:
+        return set()
+    return set(
+        session.execute(
+            select(Commit.oid).where(Commit.repo_id == repo_id, Commit.oid.in_(oid_list))
+        ).scalars().all()
+    )
+
+
+def delete_cached_commits(session, repo_id: int, *, commit: bool = True) -> None:
+    session.execute(delete(Commit).where(Commit.repo_id == repo_id))
+    if commit:
+        session.commit()
+
+
 def get_cached_branches(session, repo_id: int):
     return session.execute(
         select(Branch).where(Branch.repo_id == repo_id)
     ).scalars().all()
+
+
+def get_cached_branch(session, repo_id: int, branch_name: str | None):
+    if not branch_name:
+        return None
+    return session.execute(
+        select(Branch).where(Branch.repo_id == repo_id, Branch.name == branch_name)
+    ).scalar_one_or_none()
 
 
 def get_cached_releases(session, repo_id: int):

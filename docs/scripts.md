@@ -90,6 +90,58 @@ docker compose exec api sh -lc 'API_KEY="$(cat /run/secrets/api_key)" python scr
 - Uses `API_KEY` from `.env` and sends `Authorization: Bearer <API_KEY>`.
 - Continues after errors and reports per-endpoint status.
 
+## `scripts/db_checks.py`
+Runs basic database checks and ad hoc SQL against the Postgres database.
+
+### Usage
+Short inline query:
+```bash
+docker compose exec api python scripts/db_checks.py --sql "select * from runs limit 5"
+```
+
+Saved query file:
+```bash
+docker compose exec api python scripts/db_checks.py --sql-file queries/repos_per_owner.sql
+```
+
+Saved query file as CSV:
+```bash
+docker compose exec api python scripts/db_checks.py --sql-file queries/repos_per_owner.sql --format csv
+```
+
+Saved query file as Markdown:
+```bash
+docker compose exec api python scripts/db_checks.py --sql-file queries/repos_per_owner.sql --format markdown
+```
+
+Multiple saved query files:
+```bash
+docker compose exec api python scripts/db_checks.py \
+  --sql-file queries/repos_per_owner.sql \
+  --sql-file queries/top_active_repos_per_owner.sql
+```
+
+Read SQL from stdin:
+```bash
+docker compose exec -T api python scripts/db_checks.py --sql-file - <<'SQL'
+SELECT owner, COUNT(*) AS repo_count
+FROM repos
+GROUP BY owner
+ORDER BY repo_count DESC, owner;
+SQL
+```
+
+### Saved queries
+- `queries/repos_per_owner.sql`
+- `queries/top_active_repos_per_owner.sql`
+
+Edit `top_n` and the time window in `queries/top_active_repos_per_owner.sql` as needed.
+
+### Output formats
+- `--format tsv` for tab-separated output (default)
+- `--format csv` for spreadsheets and CSV export
+- `--format markdown` for GitHub-flavored tables
+
 ## `scripts/summarize.py`
 Generates LLM summaries and stores them via the API.
 

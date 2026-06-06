@@ -10,6 +10,7 @@ repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 from maturity_tools.analyzers import CommitAnalyzer, IssuePRAnalyzer, ReleaseAnalyzer
 from maturity_tools.github_call import (
+    fetch_commit_page,
     github_api_call,
     process_branches,
     process_commits,
@@ -20,11 +21,15 @@ from maturity_tools.github_call import (
 from maturity_tools.queries import repo_info_query
 from storage.cache import (
     create_run,
+    delete_cached_commits,
+    get_cached_branch,
     get_cached_branches,
+    get_cached_commit_count,
     get_cached_commits,
     get_cached_issues,
     get_cached_prs,
     get_cached_releases,
+    get_existing_commit_oids,
     get_or_create_repo,
     is_cache_fresh,
     record_fetch,
@@ -50,6 +55,15 @@ except ImportError:
 
 
 ENTITY_TYPES = ["branches", "commits", "issues", "prs", "releases"]
+COMMIT_COLUMNS = [
+    "oid",
+    "authoredDate",
+    "messageHeadline",
+    "additions",
+    "deletions",
+    "author_name",
+    "author_login",
+]
 
 
 def _format_duration(seconds: float) -> str:
@@ -199,6 +213,322 @@ def normalize_datetime_columns(df, columns):
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
     return df
+
+
+def empty_commits_df() -> pd.DataFrame:
+    return pd.DataFrame(columns=COMMIT_COLUMNS)
+
+
+def _coerce_timestamp(value):
+    if value is None:
+        return None
+    ts = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(ts):
+        return None
+    return ts
+
+
+def _coerce_int(value) -> int:
+    if value is None:
+        return 0
+    try:
+        if pd.isna(value):
+            return 0
+    except Exception:
+        pass
+    return int(value)
+
+
+def _timestamps_equal(left, right) -> bool:
+    left_ts = _coerce_timestamp(left)
+    right_ts = _coerce_timestamp(right)
+    if left_ts is None or right_ts is None:
+        return left_ts is None and right_ts is None
+    return left_ts == right_ts
+
+
+def _branch_snapshot(branches_df: pd.DataFrame, branch_name: str | None):
+    if branches_df is None or branches_df.empty or not branch_name:
+        return None
+    matches = branches_df[branches_df["branch_name"] == branch_name]
+    if matches.empty:
+        return None
+    row = matches.iloc[0]
+    return {
+        "name": branch_name,
+        "total_commits": _coerce_int(row.get("total_commits")),
+        "last_commit_date": _coerce_timestamp(row.get("last_commit_date")),
+        "head_oid": row.get("head_oid"),
+    }
+
+
+def _load_cached_commits_df(session, repo_id: int) -> pd.DataFrame:
+    return normalize_datetime_columns(
+        commits_to_df(get_cached_commits(session, repo_id)),
+        ["authoredDate"],
+    )
+
+
+def _fetch_full_commits(owner: str, repo: str, branch: str | None, token: str) -> pd.DataFrame:
+    if not branch:
+        return empty_commits_df()
+    commits_df = process_commits({"owner": owner, "repo": repo, "branch": branch}, token)
+    if commits_df is None:
+        return empty_commits_df()
+    return normalize_datetime_columns(commits_df, ["authoredDate"])
+
+
+def _fetch_incremental_commits(
+    session,
+    *,
+    repo_id: int,
+    owner: str,
+    repo: str,
+    branch: str,
+    token: str,
+    expected_new: int,
+) -> bool:
+    collected_new = 0
+    after_cursor = None
+    has_next_page = True
+
+    while has_next_page and collected_new < expected_new:
+        commit_rows, page_info = fetch_commit_page(
+            {"owner": owner, "repo": repo, "branch": branch},
+            token,
+            after_cursor=after_cursor,
+            first=100,
+        )
+        if not commit_rows:
+            break
+
+        existing_oids = get_existing_commit_oids(
+            session,
+            repo_id,
+            [row["oid"] for row in commit_rows],
+        )
+        unseen_rows = [row for row in commit_rows if row["oid"] not in existing_oids]
+        if unseen_rows:
+            upsert_commits(
+                session,
+                repo_id,
+                unseen_rows,
+                owner=owner,
+                repo=repo,
+            )
+            collected_new += len(unseen_rows)
+
+        after_cursor = page_info["endCursor"]
+        has_next_page = page_info["hasNextPage"]
+
+    return collected_new >= expected_new
+
+
+def _sync_commits(
+    session,
+    *,
+    repo_id: int,
+    owner: str,
+    repo: str,
+    branch_name: str | None,
+    token: str,
+    branches_df: pd.DataFrame,
+    cached_default_branch: str | None,
+) -> pd.DataFrame:
+    if not branch_name:
+        logger.info("Skipping commits for %s/%s: no default branch", owner, repo)
+        delete_cached_commits(session, repo_id)
+        return empty_commits_df()
+
+    fresh_branch = _branch_snapshot(branches_df, branch_name)
+    if fresh_branch is None:
+        logger.info("Skipping commits for %s/%s: default branch %s not found in branch list", owner, repo, branch_name)
+        delete_cached_commits(session, repo_id)
+        return empty_commits_df()
+
+    cached_commit_count = get_cached_commit_count(session, repo_id)
+    cached_branch = get_cached_branch(session, repo_id, cached_default_branch or branch_name)
+    default_branch_changed = bool(cached_default_branch and cached_default_branch != branch_name)
+    head_oid_exists = bool(
+        fresh_branch["head_oid"]
+        and get_existing_commit_oids(session, repo_id, [fresh_branch["head_oid"]])
+    )
+
+    mode = "rebuild"
+    reason = "initial_sync"
+    expected_new = 0
+
+    if default_branch_changed:
+        reason = "default_branch_changed"
+    elif cached_commit_count == 0 or cached_branch is None:
+        reason = "missing_cached_commits"
+    else:
+        cached_total = _coerce_int(cached_branch.total_commits)
+        fresh_total = fresh_branch["total_commits"]
+        if fresh_total < cached_total:
+            reason = "commit_count_decreased"
+        elif fresh_total == cached_total:
+            if _timestamps_equal(fresh_branch["last_commit_date"], cached_branch.last_commit_date) and head_oid_exists:
+                mode = "skip"
+                reason = "branch_head_unchanged"
+            else:
+                reason = "branch_head_mismatch"
+        else:
+            expected_new = fresh_total - cached_total
+            if head_oid_exists:
+                reason = "head_oid_already_cached_with_count_increase"
+            else:
+                mode = "incremental"
+                reason = f"count_increased_by_{expected_new}"
+
+    logger.info(
+        "Commit sync for %s/%s: mode=%s reason=%s expected_new=%s",
+        owner,
+        repo,
+        mode,
+        reason,
+        expected_new,
+    )
+    status_logger.info(
+        "owner=%s repo=%s stage=commit_sync status=ready mode=%s reason=%s expected_new=%s",
+        owner,
+        repo,
+        mode,
+        reason,
+        expected_new,
+    )
+
+    if mode == "skip":
+        return _load_cached_commits_df(session, repo_id)
+
+    if mode == "incremental":
+        if _fetch_incremental_commits(
+            session,
+            repo_id=repo_id,
+            owner=owner,
+            repo=repo,
+            branch=branch_name,
+            token=token,
+            expected_new=expected_new,
+        ):
+            return _load_cached_commits_df(session, repo_id)
+
+        logger.warning(
+            "Incremental commit sync could not reconcile %s/%s; rebuilding full default branch history",
+            owner,
+            repo,
+        )
+
+    commits_df_full = _fetch_full_commits(owner, repo, branch_name, token)
+    if fresh_branch["total_commits"] > 0 and commits_df_full.empty:
+        raise RuntimeError(
+            f"Full commit fetch returned no commits for {owner}/{repo} on branch {branch_name}"
+        )
+    if commits_df_full.empty:
+        delete_cached_commits(session, repo_id)
+        return commits_df_full
+    delete_cached_commits(session, repo_id, commit=False)
+    upsert_commits(
+        session,
+        repo_id,
+        commits_df_full.to_dict("records"),
+        owner=owner,
+        repo=repo,
+    )
+    return commits_df_full
+
+
+def _count_recent(df: pd.DataFrame, column: str, since: pd.Timestamp) -> int:
+    if df is None or df.empty or column not in df.columns:
+        return 0
+    values = pd.to_datetime(df[column], utc=True, errors="coerce")
+    return int(values.ge(since).sum())
+
+
+def _latest_timestamp(df: pd.DataFrame, column: str):
+    if df is None or df.empty or column not in df.columns:
+        return None
+    values = pd.to_datetime(df[column], utc=True, errors="coerce")
+    if values.dropna().empty:
+        return None
+    return values.max()
+
+
+def _compute_activity_score(
+    *,
+    commits_90d: int,
+    prs_opened_90d: int,
+    prs_merged_90d: int,
+    issues_opened_90d: int,
+    issues_closed_90d: int,
+    releases_90d: int,
+    last_commit_at,
+    now: pd.Timestamp,
+) -> float:
+    score = (
+        commits_90d * 0.25
+        + prs_merged_90d * 5.0
+        + prs_opened_90d * 2.0
+        + issues_closed_90d * 2.0
+        + issues_opened_90d * 0.5
+        + releases_90d * 3.0
+    )
+
+    if last_commit_at is not None:
+        days_since_last_commit = (now - last_commit_at).days
+        if days_since_last_commit <= 30:
+            score += 10
+        elif days_since_last_commit <= 90:
+            score += 5
+
+    return float(score)
+
+
+def compute_activity_metrics(
+    session,
+    run_id,
+    commits_df: pd.DataFrame,
+    issues_df: pd.DataFrame,
+    prs_df: pd.DataFrame,
+    releases_df: pd.DataFrame,
+    window_days: int = 90,
+):
+    now = pd.Timestamp.now(tz="UTC")
+    since = now - pd.Timedelta(days=window_days)
+
+    commits_90d = _count_recent(commits_df, "authoredDate", since)
+    prs_opened_90d = _count_recent(prs_df, "createdAt", since)
+    prs_merged_90d = _count_recent(prs_df, "mergedAt", since)
+    issues_opened_90d = _count_recent(issues_df, "createdAt", since)
+    issues_closed_90d = _count_recent(issues_df, "closedAt", since)
+    releases_90d = _count_recent(releases_df, "created_at", since)
+    last_commit_at = _latest_timestamp(commits_df, "authoredDate")
+    score_90d = _compute_activity_score(
+        commits_90d=commits_90d,
+        prs_opened_90d=prs_opened_90d,
+        prs_merged_90d=prs_merged_90d,
+        issues_opened_90d=issues_opened_90d,
+        issues_closed_90d=issues_closed_90d,
+        releases_90d=releases_90d,
+        last_commit_at=last_commit_at,
+        now=now,
+    )
+
+    add_metric(session, run_id=run_id, scope="activity", name="score_90d", value=score_90d)
+    add_metric(session, run_id=run_id, scope="activity", name="commits_90d", value=commits_90d)
+    add_metric(session, run_id=run_id, scope="activity", name="prs_opened_90d", value=prs_opened_90d)
+    add_metric(session, run_id=run_id, scope="activity", name="prs_merged_90d", value=prs_merged_90d)
+    add_metric(session, run_id=run_id, scope="activity", name="issues_opened_90d", value=issues_opened_90d)
+    add_metric(session, run_id=run_id, scope="activity", name="issues_closed_90d", value=issues_closed_90d)
+    add_metric(session, run_id=run_id, scope="activity", name="releases_90d", value=releases_90d)
+    if last_commit_at is not None:
+        add_metric(
+            session,
+            run_id=run_id,
+            scope="activity",
+            name="last_commit_at",
+            value=last_commit_at.isoformat(),
+        )
 
 
 def compute_commit_metrics(session, run_id, commit_analyzer, contribution_type="commits"):
@@ -416,6 +746,7 @@ def collect_for_repo(
     status_logger.info("owner=%s repo=%s stage=start status=begin", owner, repo)
     logger.info("Collecting %s/%s", owner, repo)
     repo_obj = get_or_create_repo(session, owner, repo, None)
+    cached_default_branch = repo_obj.default_branch
     default_branch = repo_obj.default_branch
 
     cache_fresh = {
@@ -464,7 +795,6 @@ def collect_for_repo(
                 session.add(repo_obj)
                 session.commit()
 
-        variables = {"owner": owner, "repo": repo, "branch": default_branch}
         status_logger.info("owner=%s repo=%s stage=branches status=start", owner, repo)
         branches_start = time.monotonic()
         branches_df = process_branches({"owner": owner, "repo": repo}, token)
@@ -474,9 +804,20 @@ def collect_for_repo(
             repo,
             _format_duration(time.monotonic() - branches_start),
         )
+        branches_df = normalize_datetime_columns(branches_df, ["last_commit_date"])
+
         status_logger.info("owner=%s repo=%s stage=commits status=start", owner, repo)
         commits_start = time.monotonic()
-        commits_df_full = process_commits(variables, token)
+        commits_df_full = _sync_commits(
+            session,
+            repo_id=repo_obj.id,
+            owner=owner,
+            repo=repo,
+            branch_name=default_branch,
+            token=token,
+            branches_df=branches_df,
+            cached_default_branch=cached_default_branch,
+        )
         status_logger.info(
             "owner=%s repo=%s stage=commits status=ok duration=%s",
             owner,
@@ -511,8 +852,6 @@ def collect_for_repo(
             _format_duration(time.monotonic() - releases_start),
         )
 
-        branches_df = normalize_datetime_columns(branches_df, ["last_commit_date"])
-        commits_df_full = normalize_datetime_columns(commits_df_full, ["authoredDate"])
         issues_df = normalize_datetime_columns(issues_df, ["createdAt", "closedAt", "first_comment_createdAt"])
         prs_df = normalize_datetime_columns(prs_df, ["createdAt", "mergedAt", "closedAt", "first_comment_createdAt"])
         releases_df = normalize_datetime_columns(releases_df, ["created_at"])
@@ -521,13 +860,6 @@ def collect_for_repo(
             session,
             repo_obj.id,
             branches_df.to_dict("records"),
-            owner=owner,
-            repo=repo,
-        )
-        upsert_commits(
-            session,
-            repo_obj.id,
-            commits_df_full.to_dict("records"),
             owner=owner,
             repo=repo,
         )
@@ -631,6 +963,23 @@ def collect_for_repo(
             repo,
             _format_duration(time.monotonic() - release_metrics_start),
         )
+
+    status_logger.info("owner=%s repo=%s stage=activity_metrics status=start", owner, repo)
+    activity_metrics_start = time.monotonic()
+    compute_activity_metrics(
+        session,
+        run.id,
+        commits_df_full,
+        issues_df_recent,
+        prs_df_recent,
+        releases_df_recent,
+    )
+    status_logger.info(
+        "owner=%s repo=%s stage=activity_metrics status=ok duration=%s",
+        owner,
+        repo,
+        _format_duration(time.monotonic() - activity_metrics_start),
+    )
 
     status_logger.info("owner=%s repo=%s stage=done status=ok", owner, repo)
 

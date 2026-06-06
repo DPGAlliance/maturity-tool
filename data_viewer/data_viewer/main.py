@@ -26,6 +26,7 @@ from ui import display_repo_info, display_branch_results, display_commit_results
 from data import (
     get_branches_data,
     get_commits_data,
+    get_owner_repos_by_activity,
     get_releases_data,
     get_issues_data,
     get_prs_data,
@@ -102,6 +103,17 @@ def main():
             "⚠️ GitHub token not found! Provide GITHUB_TOKEN via Streamlit secrets, env var, or GITHUB_TOKEN_FILE."
         )
         st.stop()
+
+    # DB cache is the default. If DB is unavailable, fall back to live fetch.
+    use_db_cache = True
+    session = None
+    repo_obj = None
+    try:
+        init_db()
+        session = get_session()
+    except Exception as exc:
+        st.warning(f"DB cache unavailable; using live fetch. ({exc})")
+        use_db_cache = False
     
     # Repository selection
     st.subheader("Repository Selection")
@@ -130,12 +142,25 @@ def main():
         with col_repo:
             repo_list = []
             if owner:
-                repo_list = fetch_repos_for_owner(owner, GITHUB_TOKEN)
-            repo = st.selectbox(
-                "Repository Name",
-                repo_list if repo_list else ["DIGIT-OSS"],
-                index=0 if repo_list else 0
-            )
+                if use_db_cache and session:
+                    repo_list = get_owner_repos_by_activity(session, owner)
+                else:
+                    repo_list = fetch_repos_for_owner(owner, GITHUB_TOKEN)
+
+            if repo_list:
+                repo = st.selectbox(
+                    "Repository Name",
+                    repo_list,
+                    index=0,
+                )
+            else:
+                repo = None
+                st.selectbox(
+                    "Repository Name",
+                    ["No cached repos yet" if use_db_cache and session else "No repos found"],
+                    index=0,
+                    disabled=True,
+                )
 
         with col_source:
             # Spacer so the button aligns visually with the dropdowns.
@@ -148,19 +173,13 @@ def main():
                 else:
                     st.markdown(f"[Go to source]({source_url})")
 
+    if not owner or not repo:
+        if owner and use_db_cache and session:
+            st.info("No cached repos yet for this owner. Wait for the next refresh.")
+        st.stop()
+
     # Banner should be outside the selection container.
     last_fetch_placeholder = st.empty()
-
-    # DB cache is the default. If DB is unavailable, fall back to live fetch.
-    use_db_cache = True
-    session = None
-    repo_obj = None
-    try:
-        init_db()
-        session = get_session()
-    except Exception as exc:
-        st.warning(f"DB cache unavailable; using live fetch. ({exc})")
-        use_db_cache = False
     
     info_result = None
     repo_metrics = None

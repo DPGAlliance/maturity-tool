@@ -214,11 +214,18 @@ def build_repo_payload(
     }
 
 
-def build_org_payload(owner: str, repos_payload: List[dict]) -> dict:
-    return {
+def build_org_payload(
+    owner: str,
+    repos_payload: List[dict],
+    query_results: Optional[Dict[str, Any]] = None,
+) -> dict:
+    payload = {
         "owner": owner,
         "repos": repos_payload,
     }
+    if query_results is not None:
+        payload["query_results"] = query_results
+    return payload
 
 
 def call_openai(client: OpenAI, model: str, prompt: str, data: dict) -> str:
@@ -320,6 +327,7 @@ def summarize_org(
     max_age_days: int,
     force: bool,
     store: bool = True,
+    query_results: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     STATUS_LOGGER.info("owner=%s repo=* stage=org_summary status=start", owner)
     org_metrics = get_json(session, f"{base_url}/orgs/{owner}/metrics")
@@ -342,7 +350,7 @@ def summarize_org(
         return None
 
     prompt, prompt_version = load_prompt(prompt_path)
-    openai_payload = build_org_payload(owner, org_metrics)
+    openai_payload = build_org_payload(owner, org_metrics, query_results=query_results)
     summary_text = call_openai(client, model, prompt, openai_payload)
     butler_payload = {
                 "summary_text": summary_text,

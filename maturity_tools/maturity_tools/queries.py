@@ -39,6 +39,7 @@ query($owner: String!, $repo: String!, $first_branches: Int!, $after_branches: S
           name
           target {
             ... on Commit {
+              oid
               history {
                 totalCount
               }

@@ -353,3 +353,24 @@ def get_repo_metrics_db(session, owner: str, repo: str) -> dict | None:
         return None
 
     return {metric.name: _metric_value(metric) for metric in metrics}
+
+
+def get_owner_repos_by_activity(session, owner: str) -> list[str]:
+    activity_score = (
+        select(Metric.value_float)
+        .join(Run, Run.id == Metric.run_id)
+        .where(
+            Run.repo_id == Repo.id,
+            Metric.scope == "activity",
+            Metric.name == "score_90d",
+        )
+        .order_by(Run.run_started_at.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+    return session.execute(
+        select(Repo.name)
+        .where(Repo.owner == owner)
+        .order_by(activity_score.desc().nulls_last(), Repo.name)
+    ).scalars().all()
