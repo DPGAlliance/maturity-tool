@@ -2,7 +2,7 @@ import logging
 import os
 import subprocess
 import time
-from collections import deque
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -15,6 +15,60 @@ from storage.secrets import get_secret
 
 logger = logging.getLogger("refresh_scheduler")
 status_logger = logging.getLogger("refresh.status")
+
+
+FAILURE_WARN_THRESHOLD = 3
+FAILURE_CRITICAL_THRESHOLD = 5
+
+
+class RepoFailureTracker:
+    def __init__(self):
+        self._consecutive_failures: dict[str, int] = defaultdict(int)
+        self._last_error: dict[str, str] = {}
+
+    def record_success(self, owner: str, repo: str) -> None:
+        key = f"{owner}/{repo}"
+        if key in self._consecutive_failures:
+            prev = self._consecutive_failures[key]
+            if prev > 0:
+                logger.info("Repo %s recovered after %d consecutive failures", key, prev)
+            del self._consecutive_failures[key]
+            self._last_error.pop(key, None)
+
+    def record_failure(self, owner: str, repo: str, error: str) -> None:
+        key = f"{owner}/{repo}"
+        self._consecutive_failures[key] += 1
+        self._last_error[key] = error
+        count = self._consecutive_failures[key]
+
+        if count >= FAILURE_CRITICAL_THRESHOLD:
+            logger.critical(
+                "Repo %s has failed %d consecutive times (last error: %s)",
+                key, count, error,
+            )
+            status_logger.info(
+                "owner=%s repo=%s stage=failure_tracking status=critical consecutive_failures=%d",
+                owner, repo, count,
+            )
+        elif count >= FAILURE_WARN_THRESHOLD:
+            logger.warning(
+                "Repo %s has failed %d consecutive times (last error: %s)",
+                key, count, error,
+            )
+            status_logger.info(
+                "owner=%s repo=%s stage=failure_tracking status=warning consecutive_failures=%d",
+                owner, repo, count,
+            )
+
+    def get_summary(self) -> dict[str, int]:
+        return dict(self._consecutive_failures)
+
+    def failing_repos(self) -> list[tuple[str, int, str]]:
+        return [
+            (key, count, self._last_error.get(key, ""))
+            for key, count in self._consecutive_failures.items()
+            if count >= FAILURE_WARN_THRESHOLD
+        ]
 
 
 def _format_duration(seconds: float) -> str:
@@ -97,7 +151,14 @@ def _run_logged_subprocess(cmd: list[str], *, owner: str) -> None:
         raise subprocess.CalledProcessError(returncode, cmd)
 
 
-def run_cycle(*, token: str, owners: list[str], repo_override: str | None, force_refresh: bool) -> None:
+def run_cycle(
+    *,
+    token: str,
+    owners: list[str],
+    repo_override: str | None,
+    force_refresh: bool,
+    failure_tracker: RepoFailureTracker | None = None,
+) -> None:
     import refresh_cache
 
     session = get_session()
@@ -123,16 +184,19 @@ def run_cycle(*, token: str, owners: list[str], repo_override: str | None, force
                             token=token,
                             force_refresh=force_refresh,
                         )
+                        if failure_tracker is not None:
+                            failure_tracker.record_success(owner, repo)
                         break
                     except GitHubRateLimitError as exc:
                         session.rollback()
                         session.close()
                         _sleep_for_rate_limit(exc, owner=owner, repo=repo)
                         session = get_session()
-                    except Exception:
-                        # Keep going so a single repo doesn't block the whole cycle (and summaries).
+                    except Exception as exc:
                         session.rollback()
                         logger.exception("Refresh failed for %s/%s; continuing", owner, repo)
+                        if failure_tracker is not None:
+                            failure_tracker.record_failure(owner, repo, str(exc))
                         session.close()
                         session = get_session()
                         break
@@ -224,6 +288,7 @@ def main() -> None:
         f"Starting refresh scheduler (owners={owners}, repo_override={repo_override}, interval_seconds={interval_seconds}, force_refresh={force_refresh})"
     )
 
+    tracker = RepoFailureTracker()
     cycle = 0
     while True:
         cycle += 1
@@ -236,12 +301,25 @@ def main() -> None:
                 owners=owners,
                 repo_override=repo_override,
                 force_refresh=force_refresh,
+                failure_tracker=tracker,
             )
 
             if run_summaries_after_refresh:
                 run_summaries(owners=owners)
         except Exception:
             logger.exception("Refresh cycle failed")
+
+        failing = tracker.failing_repos()
+        if failing:
+            logger.warning(
+                "Repos with repeated failures after cycle %d: %s",
+                cycle,
+                "; ".join(f"{key} ({count}x: {err})" for key, count, err in failing),
+            )
+            status_logger.info(
+                "owner=* repo=* stage=cycle_health status=degraded failing_repos=%d cycle=%d",
+                len(failing), cycle,
+            )
 
         elapsed = time.time() - start
         sleep_for = max(0, interval_seconds - int(elapsed))
