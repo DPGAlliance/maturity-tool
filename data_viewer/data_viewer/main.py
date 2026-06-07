@@ -22,7 +22,7 @@ sys.path.insert(0, maturity_tools_dir)    # For maturity_tools package
 from maturity_tools.github_call import github_api_call
 from maturity_tools.queries import repo_info_query
 from maturity_tools.github_call import process_branches, process_commits, process_issues, process_prs, process_releases
-from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results, display_summary
+from ui import display_repo_info, display_branch_results, display_commit_results, display_release_results, display_issue_results, display_summary, csv_download_button
 from data import (
     get_branches_data,
     get_commits_data,
@@ -46,6 +46,58 @@ import requests
 
 
 ENTITY_TYPES = ("branches", "commits", "issues", "prs", "releases")
+
+
+def collect_metrics_snapshot(
+    owner,
+    repo,
+    branch_analyzer=None,
+    commit_analyzer=None,
+    release_analyzer=None,
+    issue_analyzer=None,
+    stale_days=30,
+):
+    rows = []
+
+    def add(scope, name, value):
+        rows.append({"scope": scope, "metric": name, "value": value})
+
+    add("repo", "owner", owner)
+    add("repo", "name", repo)
+
+    if branch_analyzer is not None:
+        stale, active = branch_analyzer.stale_branches(stale_days)
+        add("branches", "total", len(branch_analyzer.df_branches))
+        add("branches", "stale", int(stale))
+        add("branches", "active", int(active))
+
+    if commit_analyzer is not None:
+        add("commits", "total", len(commit_analyzer.df_commits))
+        days_since, _ = commit_analyzer.staleness()
+        add("commits", "days_since_last_commit", days_since)
+        add("commits", "bus_factor_commits", commit_analyzer.bus_factor("commits"))
+        add("commits", "hhi_commits", round(commit_analyzer.contributor_diversity_hhi("commits"), 1))
+        add("commits", "total_contributors", commit_analyzer.df_commits["author_login"].nunique())
+
+    if release_analyzer is not None:
+        add("releases", "total", len(release_analyzer.df_releases))
+        add("releases", "total_downloads", int(release_analyzer.total_downloads()))
+
+    if issue_analyzer is not None:
+        if not issue_analyzer.df_issues.empty:
+            add("issues", "total", len(issue_analyzer.df_issues))
+            add("issues", "backlog_open", issue_analyzer.backlog_size())
+            add("issues", "closure_ratio_90d", round(issue_analyzer.issue_closure_ratio(90), 3))
+            ttfr = issue_analyzer.time_to_first_response("issue")
+            add("issues", "median_time_to_first_response_days", round(ttfr.total_seconds() / 86400, 2))
+            ttc = issue_analyzer.time_to_close("issue")
+            add("issues", "median_time_to_close_days", round(ttc.total_seconds() / 86400, 2))
+        if not issue_analyzer.df_prs.empty:
+            add("prs", "total", len(issue_analyzer.df_prs))
+            merge_time = issue_analyzer.pr_merge_time()
+            add("prs", "median_time_to_merge_days", round(merge_time.total_seconds() / 86400, 2))
+
+    return pd.DataFrame(rows)
 
 
 def _normalize_datetime_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
@@ -275,6 +327,12 @@ def main():
         display_summary(repo_summary, missing_message="No summary yet.")
         st.divider()
 
+    # Track analyzers for metrics snapshot
+    release_analyzer = None
+    issue_analyzer = None
+    branch_analyzer = None
+    commit_analyzer = None
+
     # releases
     releases_df = get_releases_data(
         owner,
@@ -287,9 +345,9 @@ def main():
     if releases_df.empty:
         st.warning("No releases found for the selected time range.")
     else:
-        st.subheader("📦 Releases")
+        st.subheader("Releases")
         release_analyzer = ReleaseAnalyzer(releases_df)
-        display_release_results(release_analyzer)
+        display_release_results(release_analyzer, owner, repo)
 
     # issues and PRs (Community Engagement)
     st.divider()
@@ -314,7 +372,7 @@ def main():
             repo_id=repo_obj.id if repo_obj else None,
         )
         issue_analyzer = IssuePRAnalyzer(issues_df, prs_df)
-        display_issue_results(issue_analyzer)
+        display_issue_results(issue_analyzer, owner, repo)
 
     # branches
     st.subheader("Branches")
@@ -326,9 +384,7 @@ def main():
         session=session,
         repo_id=repo_obj.id if repo_obj else None,
     )
-    display_branch_results(branches_df)
-    # we could pass the df fisrt to the BranchAnalyzer
-    # and mark in the UI df which ones are stale/active
+    display_branch_results(branches_df, owner, repo)
     branch_analyzer = BranchAnalyzer(branches_df)
     days = st.number_input("Days to look back for branch activity", min_value=1, max_value=365, value=30)
     stale, active = branch_analyzer.stale_branches(days)
@@ -354,16 +410,26 @@ def main():
         session=session,
         repo_id=repo_obj.id if repo_obj else None,
     )
-    # if the commits_df is empty, show a warning
     if commits_df.empty:
         st.warning("No commits found for the selected branch.")
     else:
-        # st.dataframe(commits_df)
         commit_analyzer = CommitAnalyzer(commits_df, df_commits_full=commits_full_df)
-        display_commit_results(commit_analyzer)
+        display_commit_results(commit_analyzer, owner, repo)
 
-
-
+    # Metrics snapshot CSV download
+    st.divider()
+    st.subheader("Export")
+    metrics_df = collect_metrics_snapshot(
+        owner,
+        repo,
+        branch_analyzer=branch_analyzer,
+        commit_analyzer=commit_analyzer,
+        release_analyzer=release_analyzer,
+        issue_analyzer=issue_analyzer,
+        stale_days=days,
+    )
+    if not metrics_df.empty:
+        csv_download_button(metrics_df, owner, repo, "metrics_snapshot", "Download Metrics Snapshot CSV")
 
 
 if __name__ == "__main__":

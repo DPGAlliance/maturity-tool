@@ -2,6 +2,18 @@ import streamlit as st
 import pandas as pd
 
 
+def csv_download_button(df: pd.DataFrame, owner: str, repo: str, section: str, label: str = "Download CSV"):
+    csv_data = df.to_csv(index=False)
+    filename = f"{owner}_{repo}_{section}.csv"
+    st.download_button(
+        label=label,
+        data=csv_data,
+        file_name=filename,
+        mime="text/csv",
+        key=f"csv_{section}_{owner}_{repo}",
+    )
+
+
 def display_summary(summary, missing_message=None):
     if summary is None:
         if missing_message:
@@ -47,12 +59,14 @@ def display_repo_info(result):
     col5.metric("Open Issues", metrics.get("open_issues", 0))
     col6.metric("Closed Issues", metrics.get("closed_issues", 0))
 
-def display_branch_results(result_df):
+def display_branch_results(result_df, owner: str = "", repo: str = ""):
     st.dataframe(result_df)
+    if not result_df.empty and owner and repo:
+        csv_download_button(result_df, owner, repo, "branches", "Download Branches CSV")
 
-def display_commit_results(commit_analyzer):
+def display_commit_results(commit_analyzer, owner: str = "", repo: str = ""):
     """Display comprehensive commit analysis results."""
-    
+
     # Check if we have commits to analyze
     if commit_analyzer.df_commits.empty:
         st.warning("No commits found for this branch.")
@@ -208,12 +222,14 @@ def display_commit_results(commit_analyzer):
         st.error(f"Error displaying contributors: {str(e)}")
     
     # Raw data expander
-    with st.expander("🔍 View Raw Commit Data"):
+    with st.expander("View Raw Commit Data"):
         st.dataframe(commit_analyzer.df_commits, width='stretch')
+        if owner and repo:
+            csv_download_button(commit_analyzer.df_commits, owner, repo, "commits", "Download Commits CSV")
 
-def display_release_results(release_analyzer):
+def display_release_results(release_analyzer, owner: str = "", repo: str = ""):
     """Display comprehensive release analysis results."""
-    
+
     # Check if we have releases to analyze
     if release_analyzer.df_releases.empty:
         st.warning("No releases found for this repository.")
@@ -315,10 +331,12 @@ def display_release_results(release_analyzer):
         st.error(f"Error calculating release frequency: {str(e)}")
     
     # Raw data expander
-    with st.expander("🔍 View Raw Release Data"):
+    with st.expander("View Raw Release Data"):
         st.dataframe(release_analyzer.df_releases, width="stretch")
+        if owner and repo:
+            csv_download_button(release_analyzer.df_releases, owner, repo, "releases", "Download Releases CSV")
 
-def display_issue_results(issue_analyzer):
+def display_issue_results(issue_analyzer, owner: str = "", repo: str = ""):
     """Display comprehensive issue and PR analysis results."""
     st.subheader("Community Engagement")
 
@@ -526,3 +544,13 @@ def display_issue_results(issue_analyzer):
             st.dataframe(prs_status_df, width="stretch", hide_index=True)
         else:
             st.info("No pull requests data available")
+
+    # CSV downloads for raw issue/PR data
+    if owner and repo:
+        dl_col1, dl_col2 = st.columns(2)
+        with dl_col1:
+            if not issue_analyzer.df_issues.empty:
+                csv_download_button(issue_analyzer.df_issues, owner, repo, "issues", "Download Issues CSV")
+        with dl_col2:
+            if not issue_analyzer.df_prs.empty:
+                csv_download_button(issue_analyzer.df_prs, owner, repo, "pull_requests", "Download PRs CSV")
