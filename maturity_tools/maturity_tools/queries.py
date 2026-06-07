@@ -159,6 +159,24 @@ query($owner: String!, $repo: String!, $first_issues: Int!, $after_issues: Strin
 }
 """
 
+governance_query = """
+query($owner: String!, $repo: String!) {
+  repository(owner: $owner, name: $repo) {
+    security_md: object(expression: "HEAD:SECURITY.md") { __typename }
+    security_rst: object(expression: "HEAD:SECURITY.rst") { __typename }
+    security_txt: object(expression: "HEAD:.github/SECURITY.md") { __typename }
+    governance_md: object(expression: "HEAD:GOVERNANCE.md") { __typename }
+    governance_rst: object(expression: "HEAD:GOVERNANCE.rst") { __typename }
+    code_of_conduct_md: object(expression: "HEAD:CODE_OF_CONDUCT.md") { __typename }
+    code_of_conduct_gh: object(expression: "HEAD:.github/CODE_OF_CONDUCT.md") { __typename }
+    dockerfile: object(expression: "HEAD:Dockerfile") { __typename }
+    docker_compose_yml: object(expression: "HEAD:docker-compose.yml") { __typename }
+    docker_compose_yaml: object(expression: "HEAD:docker-compose.yaml") { __typename }
+    containerfile: object(expression: "HEAD:Containerfile") { __typename }
+  }
+}
+"""
+
 pr_query = """
 query($owner: String!, $repo: String!, $first_prs: Int!, $after_prs: String) {
   repository(owner: $owner, name: $repo) {

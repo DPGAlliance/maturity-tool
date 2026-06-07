@@ -9,7 +9,7 @@ import threading
 import time
 import requests
 from typing import Any, Dict, Optional
-from maturity_tools.queries import branches_query, commits_query, releases_query, issues_query, pr_query
+from maturity_tools.queries import branches_query, commits_query, releases_query, issues_query, pr_query, governance_query
 import pandas as pd
 
 
@@ -550,3 +550,37 @@ def process_prs(variables, GITHUB_TOKEN) -> Optional[pd.DataFrame]:
     # Ensure stable schema even when there are zero PRs (pd.DataFrame([]) has no columns).
     df_prs = pd.DataFrame(pr_data_list)
     return df_prs.reindex(columns=PR_COLUMNS)
+
+
+def fetch_governance_files(variables: dict, token: str) -> dict[str, bool]:
+    result = github_api_call(
+        governance_query,
+        variables,
+        token,
+        request_name="governance_files",
+    )
+    repo_data = result.get("data", {}).get("repository", {})
+
+    has_security = any(
+        repo_data.get(key) is not None
+        for key in ("security_md", "security_rst", "security_txt")
+    )
+    has_governance = any(
+        repo_data.get(key) is not None
+        for key in ("governance_md", "governance_rst")
+    )
+    has_code_of_conduct = any(
+        repo_data.get(key) is not None
+        for key in ("code_of_conduct_md", "code_of_conduct_gh")
+    )
+    has_containerization = any(
+        repo_data.get(key) is not None
+        for key in ("dockerfile", "docker_compose_yml", "docker_compose_yaml", "containerfile")
+    )
+
+    return {
+        "has_security_policy": has_security,
+        "has_governance": has_governance,
+        "has_code_of_conduct": has_code_of_conduct,
+        "has_containerization": has_containerization,
+    }

@@ -11,6 +11,7 @@ repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 from maturity_tools.analyzers import CommitAnalyzer, IssuePRAnalyzer, ReleaseAnalyzer
 from maturity_tools.github_call import (
     fetch_commit_page,
+    fetch_governance_files,
     github_api_call,
     process_branches,
     process_commits,
@@ -736,6 +737,11 @@ def compute_repo_metrics(session, run_id, repo_info: dict) -> None:
     )
 
 
+def compute_governance_metrics(session, run_id, governance_flags: dict) -> None:
+    for name, value in governance_flags.items():
+        add_metric(session, run_id=run_id, scope="governance", name=name, value=int(value))
+
+
 def collect_for_repo(
     session,
     owner,
@@ -924,6 +930,20 @@ def collect_for_repo(
             owner,
             repo,
             _format_duration(time.monotonic() - repo_metrics_start),
+        )
+
+        status_logger.info("owner=%s repo=%s stage=governance status=start", owner, repo)
+        governance_start = time.monotonic()
+        try:
+            governance_flags = fetch_governance_files({"owner": owner, "repo": repo}, token)
+            compute_governance_metrics(session, run.id, governance_flags)
+        except Exception:
+            logger.warning("Failed to fetch governance files for %s/%s", owner, repo, exc_info=True)
+        status_logger.info(
+            "owner=%s repo=%s stage=governance status=ok duration=%s",
+            owner,
+            repo,
+            _format_duration(time.monotonic() - governance_start),
         )
 
     if not commits_df_recent.empty:
