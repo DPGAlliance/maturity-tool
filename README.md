@@ -1,3 +1,9 @@
+
+## Project status
+
+This repository is currently open for reference only.
+At this time, I am not accepting pull requests or feature contributions.
+
 # maturity-tool
 
 Monorepo with two Python packages:
