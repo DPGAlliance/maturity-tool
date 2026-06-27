@@ -163,6 +163,71 @@ poetry run python summarize.py --owner <owner>
 - `API_KEY`
 - `GITHUB_TOKEN` (for repo descriptions)
 
+## `scripts/locaiton/collect_contributor_locations.py`
+Experimental contributor location collector for one owner or repo scope.
+
+It reads contributor logins from the cached database, enriches them from GitHub user profiles, and optionally geocodes profile `location` strings into country/city data.
+
+### Example
+```bash
+cd scripts
+poetry run python locaiton/collect_contributor_locations.py --owner egovernments
+```
+
+Repo scope:
+```bash
+cd scripts
+poetry run python locaiton/collect_contributor_locations.py --owner egovernments --repo DIGIT-OSS
+```
+
+### Outputs
+Written under `.cache/location/<scope>/` by default:
+- `contributors.csv`
+- `contributors.json`
+- `country_summary.csv`
+- `city_summary.csv`
+- `summary.json`
+
+Cached fetches are stored under `.cache/location/caches/`.
+
+## `scripts/collect_repo_practice_signals.py`
+Experimental GitHub-signal collector for repository practices.
+
+It evaluates these booleans per repo:
+- `has_security_policy`
+- `has_governance`
+- `has_code_of_conduct`
+- `has_containerization`
+
+The script uses:
+- `GET /repos/{owner}/{repo}`
+- `GET /repos/{owner}/{repo}/community/profile`
+- `GET /repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1`
+
+Governance and containerization evidence are split into strong and medium signals in the output.
+
+### Example
+```bash
+cd scripts
+poetry run python collect_repo_practice_signals.py --owner egovernments
+```
+
+Single repo:
+```bash
+cd scripts
+poetry run python collect_repo_practice_signals.py --owner egovernments --repo DIGIT-OSS
+```
+
+### Outputs
+Written under `.cache/repo_practice_signals/<scope>/` by default:
+- `repo_practice_signals.csv`
+- `repo_practice_signals.json`
+- `summary.json`
+
+Cached GitHub responses are stored under `.cache/repo_practice_signals/caches/`.
+
+Per-repo output includes `scan_status` so blocked or failed repos are recorded without aborting the full owner scan.
+
 ## `scripts/refresh_requirements.sh`
 Exports per-service requirements from Poetry.
 
