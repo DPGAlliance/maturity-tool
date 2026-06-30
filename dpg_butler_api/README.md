@@ -15,10 +15,14 @@ start api by:
 You can test the api by:
 
 ```bash
-    python scripts/test_api.py
-    # or specify owner/repo
-    python ../scripts/test_api.py --owner egovernments --repo digit-oss
-    # check the docs for more options
+    # cached/read-only API smoke test
+    poetry run python ../scripts/test_cached_api.py --owner egovernments --repo DIGIT-OSS
+
+    # ad hoc repo scan flow
+    poetry run python ../scripts/test_repo_scan_api.py --owner egovernments --repo DIGIT-OSS
+
+    # wait for ad hoc scan completion with visible polling output
+    poetry run python ../scripts/test_repo_scan_api.py --owner egovernments --repo DIGIT-OSS --wait-for-scan
 ```
 
 To load something into the cache database:

@@ -168,3 +168,24 @@ class Summary(Base):
     metadata_json: Mapped[dict | list | None] = mapped_column(json_type())
 
     repo = relationship("Repo", back_populates="summaries")
+
+
+class RepoScanJob(Base):
+    __tablename__ = "repo_scan_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    host: Mapped[str] = mapped_column(String(200), nullable=False)
+    repo_path: Mapped[str] = mapped_column(String(400), nullable=False)
+    owner: Mapped[str | None] = mapped_column(String(200))
+    repo: Mapped[str | None] = mapped_column(String(200))
+    repo_url_raw: Mapped[str] = mapped_column(Text, nullable=False)
+    canonical_repo_url: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("runs.id"))
+    result_url: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(String(50))

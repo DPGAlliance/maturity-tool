@@ -36,6 +36,19 @@ docker compose --profile scheduler up -d --build
 
 Returns repos for a given owner.
 
+### Ad hoc repo scans
+`POST /repo-scans/validate`
+
+Validate a submitted repository URL, detect the provider, and report whether ad hoc scanning is currently supported for that repo.
+
+`POST /repo-scans`
+
+Create or reuse an ad hoc single-repo scan job. Returns a status URL and a hidden viewer result URL.
+
+`GET /repo-scans/{scan_id}`
+
+Return job status for an ad hoc repo scan (`pending`, `running`, `completed`, `failed`).
+
 ### Metrics (latest by default)
 `GET /repos/{owner}/{repo}/metrics`
 
@@ -61,6 +74,11 @@ Latest metrics for each repo in the org.
 `POST /repos/{owner}/{repo}/summary`
 
 `POST /orgs/{owner}/summary`
+
+## Notes
+- Ad hoc repo scans are processed by the separate `adhoc_scan_worker` service.
+- Direct result links reuse the existing viewer page via query params; there is no separate visible navigation for them.
+- Heartbeat/stale-job recovery is not implemented yet. If the worker crashes while a job is `running`, that job may need manual reset or retriggering.
 
 ## Response shape (nested metrics)
 ```json

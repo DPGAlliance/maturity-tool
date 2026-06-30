@@ -47,3 +47,42 @@ class SummaryIn(BaseModel):
     prompt_version: Optional[str] = None
     run_id: Optional[int] = None
     metadata_json: Optional[Any] = None
+
+
+class RepoScanValidateIn(BaseModel):
+    repo_url: str
+
+
+class RepoScanValidateOut(BaseModel):
+    valid: bool
+    provider: Optional[str] = None
+    host: Optional[str] = None
+    repo_path: Optional[str] = None
+    owner: Optional[str] = None
+    repo: Optional[str] = None
+    canonical_repo_url: Optional[str] = None
+    accessible: bool = False
+    scan_supported: bool = False
+    default_branch: Optional[str] = None
+    archived: Optional[bool] = None
+    visibility: Optional[str] = None
+    error: Optional[str] = None
+
+
+class RepoScanJobOut(BaseModel):
+    scan_id: int
+    provider: str
+    host: str
+    repo_path: str
+    owner: Optional[str] = None
+    repo: Optional[str] = None
+    repo_url_raw: str
+    canonical_repo_url: str
+    status: str
+    requested_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    run_id: Optional[int] = None
+    status_url: Optional[str] = None
+    result_url: Optional[str] = None

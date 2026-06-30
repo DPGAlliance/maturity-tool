@@ -17,6 +17,7 @@ They are separate so `maturity_tools` can be used as a dependency without pullin
 Runs as a small stack (Postgres + API + Streamlit viewer) via Docker Compose.
 
 Each service now builds from its own Dockerfile (inside the package folder) to keep dependencies isolated.
+The default local stack also includes an ad hoc scan worker for API-triggered single-repo scans.
 
 ### Prereqs
 - Docker + Docker Compose
@@ -65,6 +66,10 @@ make up-all
   - `RUN_SUMMARIES` (default: `true`)
   - `SUMMARY_BASE_URL` (default: `http://api:8000`)
   - `SUMMARY_MODEL`, `SUMMARY_HISTORY`, `SUMMARY_MAX_AGE_DAYS`, `SUMMARY_FORCE`, `SUMMARY_NO_STORE` (optional)
+- Ad hoc scan worker:
+  - `ADHOC_SCAN_POLL_SECONDS` (default: `5`)
+- API:
+  - `VIEWER_BASE_URL` (default: `http://localhost:8501`) for direct result links returned by ad hoc scan endpoints
 
 ### Storage and refresh workflow
 - Cache and metrics snapshots are stored in Postgres only.
@@ -95,3 +100,7 @@ make up-all
 - Scripts: `docs/scripts.md`
 - Storage/cache: `docs/storage.md`
 - API: `docs/api.md`
+
+### Ad hoc scan note
+- Ad hoc single-repo scans are processed by the `adhoc_scan_worker` service.
+- Heartbeat/stale-job recovery for `running` ad hoc jobs is not implemented yet, so a worker crash can leave a job stuck until it is manually reset or retriggered.

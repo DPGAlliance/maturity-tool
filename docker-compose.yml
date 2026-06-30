@@ -31,12 +31,36 @@ services:
       DB_USER: ${POSTGRES_USER:-maturity}
       DB_PASSWORD_FILE: /run/secrets/postgres_password
       API_KEY_FILE: /run/secrets/api_key
+      GITHUB_TOKEN_FILE: /run/secrets/github_token
+      VIEWER_BASE_URL: ${VIEWER_BASE_URL:-http://localhost:8501}
     secrets:
       - postgres_password
       - api_key
+      - github_token
     ports:
       - "127.0.0.1:8000:8000"
     command: ["uvicorn", "dpg_butler_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  adhoc_scan_worker:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-maturity}
+      DB_USER: ${POSTGRES_USER:-maturity}
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
+      GITHUB_TOKEN_FILE: /run/secrets/github_token
+      ADHOC_SCAN_POLL_SECONDS: ${ADHOC_SCAN_POLL_SECONDS:-5}
+    secrets:
+      - postgres_password
+      - github_token
+    command: ["python", "scripts/adhoc_scan_worker.py"]
 
   viewer:
     build:

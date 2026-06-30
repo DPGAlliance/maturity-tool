@@ -67,17 +67,18 @@ Secrets can be provided via either env vars (e.g. `GITHUB_TOKEN`) or Docker-secr
   metrics snapshot.
 - If cache is stale, it refetches raw data and updates the cache.
 
-## `scripts/test_api.py`
-Quickly probes the API and prints status + JSON previews.
+## `scripts/test_cached_api.py`
+Quickly probes the cached/read-only API endpoints and prints status + JSON previews.
 
 ### Usage
 ```bash
-poetry run python test_api.py --owner <org> --repo <name>
+cd scripts
+poetry run python test_cached_api.py --owner <org> --repo <name>
 ```
 
-Docker (reads API key from secrets file):
+Docker:
 ```bash
-docker compose exec api sh -lc 'API_KEY="$(cat /run/secrets/api_key)" python scripts/test_api.py --owner <org> --repo <name> --base-url http://api:8000'
+docker compose exec api python scripts/test_cached_api.py --owner <org> --repo <name> --base-url http://localhost:8000
 ```
 
 ### Options
@@ -87,8 +88,48 @@ docker compose exec api sh -lc 'API_KEY="$(cat /run/secrets/api_key)" python scr
 - `--limit` (default: 3)
 
 ### Notes
-- Uses `API_KEY` from `.env` and sends `Authorization: Bearer <API_KEY>`.
+- Reads the API key from `API_KEY`, `API_KEY_FILE`, or local `secrets/api_key`.
 - Continues after errors and reports per-endpoint status.
+
+## `scripts/test_repo_scan_api.py`
+Tests the ad hoc single-repo scan API flow.
+
+### Usage
+With a full repo URL:
+```bash
+cd scripts
+poetry run python test_repo_scan_api.py --repo-url https://github.com/egovernments/DIGIT-OSS
+```
+
+Or construct the GitHub URL from owner/repo:
+```bash
+cd scripts
+poetry run python test_repo_scan_api.py --owner egovernments --repo DIGIT-OSS
+```
+
+Wait for completion with visible progress:
+```bash
+cd scripts
+poetry run python test_repo_scan_api.py --owner egovernments --repo DIGIT-OSS --wait-for-scan
+```
+
+Docker:
+```bash
+docker compose exec api python scripts/test_repo_scan_api.py --owner egovernments --repo DIGIT-OSS --base-url http://localhost:8000
+```
+
+### Options
+- `--base-url` (default: `http://localhost:8000`)
+- `--repo-url` full repository URL to validate and scan
+- `--owner` and `--repo` to build a GitHub repo URL when `--repo-url` is omitted
+- `--wait-for-scan` to keep polling until the scan is `completed` or `failed`
+- `--poll-seconds` (default: 5)
+- `--timeout-seconds` (default: 300)
+
+### Notes
+- Reads the API key from `API_KEY`, `API_KEY_FILE`, or local `secrets/api_key`.
+- Prints the immediate `scan_id`, `status_url`, and `result_url` after creation.
+- `--wait-for-scan` is not silent: it prints visible status progress while polling.
 
 ## `scripts/db_checks.py`
 Runs basic database checks and ad hoc SQL against the Postgres database.
@@ -225,6 +266,15 @@ Written under `.cache/repo_practice_signals/<scope>/` by default:
 - `summary.json`
 
 Cached GitHub responses are stored under `.cache/repo_practice_signals/caches/`.
+
+## `scripts/adhoc_scan_worker.py`
+Background worker for API-created ad hoc single-repo scans.
+
+It polls the database for `pending` repo scan jobs, claims one with DB locking, runs the existing cache refresh for that repo with `force_refresh=True`, and marks the job as `completed` or `failed`.
+
+### Notes
+- Intended to run via the `adhoc_scan_worker` Docker service.
+- The worker currently has no stale-running heartbeat recovery. If it crashes while a job is `running`, that job may need manual reset or retriggering.
 
 Per-repo output includes `scan_status` so blocked or failed repos are recorded without aborting the full owner scan.
 

@@ -12,7 +12,7 @@ from storage.cache import (
     # Cache refresh is handled by scheduled scripts; the viewer only fetches
     # from GitHub when no cache entry exists yet (handled in main.py).
 )
-from storage.models import Metric, Repo, Run, Summary
+from storage.models import Metric, Repo, RepoScanJob, Run, Summary
 from sqlalchemy import select
 
 # Cache branch results until owner/repo changes
@@ -374,3 +374,7 @@ def get_owner_repos_by_activity(session, owner: str) -> list[str]:
         .where(Repo.owner == owner)
         .order_by(activity_score.desc().nulls_last(), Repo.name)
     ).scalars().all()
+
+
+def get_repo_scan_job(session, scan_id: int) -> RepoScanJob | None:
+    return session.get(RepoScanJob, scan_id)
