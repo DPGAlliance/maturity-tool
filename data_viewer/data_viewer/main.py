@@ -172,7 +172,11 @@ def main():
             direct_repo = scan_job.repo
 
         if scan_job.status in {"pending", "running"}:
-            st.info(f"Scan status: {scan_job.status}. Results are not ready yet.")
+            stage_message = f" Current stage: {scan_job.stage}." if scan_job.stage else ""
+            summary_message = ""
+            if scan_job.summary_status == "running":
+                summary_message = " Repo summary is being generated."
+            st.info(f"Scan status: {scan_job.status}.{stage_message}{summary_message} Results are not ready yet.")
             if scan_job.started_at:
                 st.caption(f"Started: {scan_job.started_at:%Y-%m-%d %H:%M UTC}")
             st.stop()
@@ -348,7 +352,20 @@ def main():
             display_summary(org_summary)
 
         repo_summary = get_repo_summary_db(session, owner, repo)
-        display_summary(repo_summary, missing_message="No summary yet.")
+        scan_job_for_summary = None
+        if direct_mode and direct_scan_id is not None:
+            scan_job_for_summary = get_repo_scan_job(session, direct_scan_id)
+        missing_summary_message = "No summary yet."
+        if direct_mode and direct_scan_id is not None:
+            if scan_job_for_summary and scan_job_for_summary.summary_status == "failed":
+                missing_summary_message = (
+                    "We’re sorry, the repo summary could not be generated for this scan. "
+                    "The repository metrics and charts are still available below."
+                )
+        if scan_job_for_summary and scan_job_for_summary.summary_status == "failed":
+            display_summary(None, missing_message=missing_summary_message)
+        else:
+            display_summary(repo_summary, missing_message=missing_summary_message)
         st.divider()
 
     # releases

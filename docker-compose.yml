@@ -56,10 +56,18 @@ services:
       DB_USER: ${POSTGRES_USER:-maturity}
       DB_PASSWORD_FILE: /run/secrets/postgres_password
       GITHUB_TOKEN_FILE: /run/secrets/github_token
+      API_KEY_FILE: /run/secrets/api_key
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
       ADHOC_SCAN_POLL_SECONDS: ${ADHOC_SCAN_POLL_SECONDS:-5}
+      SUMMARY_BASE_URL: ${SUMMARY_BASE_URL:-http://api:8000}
+      SUMMARY_MODEL: ${SUMMARY_MODEL:-gpt-4o-mini}
+      SUMMARY_HISTORY: ${SUMMARY_HISTORY:-5}
+      SUMMARY_MAX_AGE_DAYS: ${SUMMARY_MAX_AGE_DAYS:-30}
     secrets:
       - postgres_password
       - github_token
+      - api_key
+      - openai_api_key
     command: ["python", "scripts/adhoc_scan_worker.py"]
 
   viewer:

@@ -64,6 +64,16 @@ Only GitHub repos are scan-supported today. Other recognized providers are retur
 
 Return job status for an ad hoc repo scan (`pending`, `running`, `completed`, `failed`).
 
+For GitHub ad hoc scans, a repo summary is also attempted after the repo refresh succeeds. Summary generation is a soft-failure step:
+- if refresh fails, the job fails
+- if refresh succeeds but the repo summary fails, the job still completes and the viewer shows a fallback summary message
+
+The job status response includes:
+- `stage`
+- `summary_status`
+- `summary_error_message`
+- `summary_finished_at`
+
 ### Metrics (latest by default)
 `GET /repos/{owner}/{repo}/metrics`
 
@@ -95,6 +105,7 @@ Latest metrics for each repo in the org.
 - Direct result links reuse the existing viewer page via query params; there is no separate visible navigation for them.
 - Heartbeat/stale-job recovery is not implemented yet. If the worker crashes while a job is `running`, that job may need manual reset or retriggering.
 - Validation and create-scan attempts are stored in `repo_scan_request_logs` for later review with SQL queries.
+- GitHub ad hoc scans attempt a repo summary after refresh. Summary failures are logged and exposed on the job, but they do not fail the completed scan.
 
 ## Response shape (nested metrics)
 ```json

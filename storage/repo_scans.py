@@ -13,6 +13,14 @@ SCAN_STATUS_COMPLETED = "completed"
 SCAN_STATUS_FAILED = "failed"
 SCAN_STATUS_INVALID = "invalid"
 ACTIVE_SCAN_STATUSES = (SCAN_STATUS_PENDING, SCAN_STATUS_RUNNING)
+SCAN_STAGE_QUEUED = "queued"
+SCAN_STAGE_REFRESHING_REPO = "refreshing_repo"
+SCAN_STAGE_GENERATING_SUMMARY = "generating_summary"
+SCAN_STAGE_COMPLETED = "completed"
+SUMMARY_STATUS_NOT_STARTED = "not_started"
+SUMMARY_STATUS_RUNNING = "running"
+SUMMARY_STATUS_COMPLETED = "completed"
+SUMMARY_STATUS_FAILED = "failed"
 
 
 def utc_now() -> datetime:
@@ -57,6 +65,8 @@ def create_repo_scan_job(
         repo_url_raw=repo_url_raw,
         canonical_repo_url=canonical_repo_url,
         status=SCAN_STATUS_PENDING,
+        stage=SCAN_STAGE_QUEUED,
+        summary_status=SUMMARY_STATUS_NOT_STARTED,
         result_url=result_url,
         source=source,
     )
@@ -79,9 +89,13 @@ def claim_next_pending_repo_scan_job(session) -> dict | None:
             return None
 
         job.status = SCAN_STATUS_RUNNING
+        job.stage = SCAN_STAGE_REFRESHING_REPO
         job.started_at = utc_now()
         job.finished_at = None
         job.error_message = None
+        job.summary_status = SUMMARY_STATUS_NOT_STARTED
+        job.summary_error_message = None
+        job.summary_finished_at = None
         job.run_id = None
         session.add(job)
         session.flush()
@@ -99,11 +113,35 @@ def claim_next_pending_repo_scan_job(session) -> dict | None:
         }
 
 
+def update_repo_scan_job_stage(
+    session,
+    job_id: int,
+    *,
+    stage: str,
+    summary_status: str | None = None,
+    summary_error_message: str | None = None,
+    summary_finished: bool = False,
+) -> None:
+    job = session.get(RepoScanJob, job_id)
+    if job is None:
+        return
+    job.stage = stage
+    if summary_status is not None:
+        job.summary_status = summary_status
+    if summary_error_message is not None:
+        job.summary_error_message = summary_error_message
+    if summary_finished:
+        job.summary_finished_at = utc_now()
+    session.add(job)
+    session.commit()
+
+
 def mark_repo_scan_job_completed(session, job_id: int, *, run_id: int | None = None) -> None:
     job = session.get(RepoScanJob, job_id)
     if job is None:
         return
     job.status = SCAN_STATUS_COMPLETED
+    job.stage = SCAN_STAGE_COMPLETED
     job.finished_at = utc_now()
     job.error_message = None
     job.run_id = run_id

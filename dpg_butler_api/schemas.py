@@ -82,10 +82,14 @@ class RepoScanJobOut(BaseModel):
     repo_url_raw: str
     canonical_repo_url: str
     status: str
+    stage: Optional[str] = None
     requested_at: datetime
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     error_message: Optional[str] = None
+    summary_status: Optional[str] = None
+    summary_error_message: Optional[str] = None
+    summary_finished_at: Optional[datetime] = None
     run_id: Optional[int] = None
     status_url: Optional[str] = None
     result_url: Optional[str] = None

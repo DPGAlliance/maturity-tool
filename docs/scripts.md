@@ -313,10 +313,12 @@ Cached GitHub responses are stored under `.cache/repo_practice_signals/caches/`.
 ## `scripts/adhoc_scan_worker.py`
 Background worker for API-created ad hoc single-repo scans.
 
-It polls the database for `pending` repo scan jobs, claims one with DB locking, runs the existing cache refresh for that repo with `force_refresh=True`, and marks the job as `completed` or `failed`.
+It polls the database for `pending` repo scan jobs, claims one with DB locking, runs the existing cache refresh for that repo with `force_refresh=True`, and for GitHub jobs also attempts a repo-level summary before marking the job complete.
 
 ### Notes
 - Intended to run via the `adhoc_scan_worker` Docker service.
+- Requires `GITHUB_TOKEN`, `API_KEY`, and `OPENAI_API_KEY` because GitHub ad hoc scans now also generate repo summaries.
+- Repo summary generation is a soft-failure step: if the summary fails, the scan still completes and the result page shows a fallback message.
 - The worker currently has no stale-running heartbeat recovery. If it crashes while a job is `running`, that job may need manual reset or retriggering.
 
 Per-repo output includes `scan_status` so blocked or failed repos are recorded without aborting the full owner scan.
