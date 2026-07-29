@@ -104,3 +104,4 @@ make up-all
 ### Ad hoc scan note
 - Ad hoc single-repo scans are processed by the `adhoc_scan_worker` service.
 - Heartbeat/stale-job recovery for `running` ad hoc jobs is not implemented yet, so a worker crash can leave a job stuck until it is manually reset or retriggered.
+- Repository URL validation supports more hosts than actual scanning. Today only GitHub is scan-supported, while validation attempts for other providers are still logged for telemetry and prioritization.

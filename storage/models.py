@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 
@@ -189,3 +189,24 @@ class RepoScanJob(Base):
     run_id: Mapped[int | None] = mapped_column(ForeignKey("runs.id"))
     result_url: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str | None] = mapped_column(String(50))
+
+
+class RepoScanRequestLog(Base):
+    __tablename__ = "repo_scan_request_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    source_endpoint: Mapped[str] = mapped_column(String(50), nullable=False)
+    repo_url_raw: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_host: Mapped[str | None] = mapped_column(String(200))
+    provider_detected: Mapped[str | None] = mapped_column(String(50))
+    provider_family: Mapped[str | None] = mapped_column(String(50))
+    repo_path: Mapped[str | None] = mapped_column(String(400))
+    canonical_repo_url: Mapped[str | None] = mapped_column(Text)
+    valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    accessible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    scan_supported: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    confidence: Mapped[str | None] = mapped_column(String(20))
+    result_class: Mapped[str] = mapped_column(String(100), nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_scan_job_id: Mapped[int | None] = mapped_column(ForeignKey("repo_scan_jobs.id"))

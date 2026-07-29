@@ -39,11 +39,26 @@ Returns repos for a given owner.
 ### Ad hoc repo scans
 `POST /repo-scans/validate`
 
-Validate a submitted repository URL, detect the provider, and report whether ad hoc scanning is currently supported for that repo.
+Validate a submitted repository URL, detect the provider/family, and report whether ad hoc scanning is currently supported for that repo.
+
+Validation currently recognizes a wider set of providers than the scan engine itself. In practice:
+- GitHub: validated and scan-supported
+- GitLab, Bitbucket, Codeberg, SourceHut: validated where positively identified, but not scan-supported yet
+- Gitea / Forgejo / Gerrit / self-hosted GitLab: best-effort family inference with conservative fallback to `unknown`
+
+The validation response includes:
+- `provider`
+- `provider_family`
+- `confidence`
+- `result_class`
+
+Every validation request is logged into the database so incoming provider demand can be reviewed later via SQL.
 
 `POST /repo-scans`
 
 Create or reuse an ad hoc single-repo scan job. Returns a status URL and a hidden viewer result URL.
+
+Only GitHub repos are scan-supported today. Other recognized providers are returned as valid-but-unsupported and are still logged for telemetry.
 
 `GET /repo-scans/{scan_id}`
 
@@ -79,6 +94,7 @@ Latest metrics for each repo in the org.
 - Ad hoc repo scans are processed by the separate `adhoc_scan_worker` service.
 - Direct result links reuse the existing viewer page via query params; there is no separate visible navigation for them.
 - Heartbeat/stale-job recovery is not implemented yet. If the worker crashes while a job is `running`, that job may need manual reset or retriggering.
+- Validation and create-scan attempts are stored in `repo_scan_request_logs` for later review with SQL queries.
 
 ## Response shape (nested metrics)
 ```json

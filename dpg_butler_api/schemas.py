@@ -56,6 +56,7 @@ class RepoScanValidateIn(BaseModel):
 class RepoScanValidateOut(BaseModel):
     valid: bool
     provider: Optional[str] = None
+    provider_family: Optional[str] = None
     host: Optional[str] = None
     repo_path: Optional[str] = None
     owner: Optional[str] = None
@@ -66,6 +67,8 @@ class RepoScanValidateOut(BaseModel):
     default_branch: Optional[str] = None
     archived: Optional[bool] = None
     visibility: Optional[str] = None
+    confidence: Optional[str] = None
+    result_class: str
     error: Optional[str] = None
 
 

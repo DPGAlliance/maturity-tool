@@ -3,8 +3,9 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from dpg_butler_api.deps import get_db_session, require_api_key
-from dpg_butler_api.repo_url_validation import DEFAULT_VIEWER_BASE_URL, build_result_url, validate_repo_url
+from dpg_butler_api.repo_url_validation import DEFAULT_VIEWER_BASE_URL, build_result_url, parse_raw_repo_url, validate_repo_url
 from dpg_butler_api.schemas import RepoScanJobOut, RepoScanValidateIn, RepoScanValidateOut
+from storage.repo_scan_request_logs import create_repo_scan_request_log
 from storage.repo_scans import create_repo_scan_job, find_active_repo_scan_job, get_repo_scan_job
 from storage.secrets import get_secret
 
@@ -14,6 +15,27 @@ router = APIRouter(prefix="/repo-scans", tags=["repo-scans"], dependencies=[Depe
 
 def _viewer_base_url() -> str:
     return os.getenv("VIEWER_BASE_URL", DEFAULT_VIEWER_BASE_URL).rstrip("/")
+
+
+def _log_repo_scan_request(session, *, source_endpoint: str, repo_url_raw: str, validation, created_scan_job_id: int | None = None) -> None:
+    parsed = parse_raw_repo_url(repo_url_raw)
+    create_repo_scan_request_log(
+        session,
+        source_endpoint=source_endpoint,
+        repo_url_raw=repo_url_raw,
+        normalized_host=validation.host or (parsed.host if parsed else None),
+        provider_detected=validation.provider,
+        provider_family=validation.provider_family,
+        repo_path=validation.repo_path,
+        canonical_repo_url=validation.canonical_repo_url,
+        valid=validation.valid,
+        accessible=validation.accessible,
+        scan_supported=validation.scan_supported,
+        confidence=validation.confidence,
+        result_class=validation.result_class,
+        error_message=validation.error,
+        created_scan_job_id=created_scan_job_id,
+    )
 
 
 def _job_out(request: Request, job) -> RepoScanJobOut:
@@ -38,9 +60,10 @@ def _job_out(request: Request, job) -> RepoScanJobOut:
 
 
 @router.post("/validate", response_model=RepoScanValidateOut)
-def validate_repo_scan(payload: RepoScanValidateIn):
+def validate_repo_scan(payload: RepoScanValidateIn, session=Depends(get_db_session)):
     github_token = get_secret("GITHUB_TOKEN")
     result = validate_repo_url(payload.repo_url, github_token=github_token)
+    _log_repo_scan_request(session, source_endpoint="validate", repo_url_raw=payload.repo_url, validation=result)
     return RepoScanValidateOut(**result.__dict__)
 
 
@@ -50,10 +73,13 @@ def create_repo_scan(payload: RepoScanValidateIn, request: Request, session=Depe
     validation = validate_repo_url(payload.repo_url, github_token=github_token)
 
     if not validation.valid:
+        _log_repo_scan_request(session, source_endpoint="create_scan", repo_url_raw=payload.repo_url, validation=validation)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=validation.error or "Invalid repository URL")
     if not validation.accessible:
+        _log_repo_scan_request(session, source_endpoint="create_scan", repo_url_raw=payload.repo_url, validation=validation)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=validation.error or "Repository is not accessible")
     if not validation.scan_supported or validation.provider != "github" or not validation.owner or not validation.repo:
+        _log_repo_scan_request(session, source_endpoint="create_scan", repo_url_raw=payload.repo_url, validation=validation)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Repository URL is valid, but ad hoc scanning currently supports GitHub repos only.",
@@ -77,6 +103,13 @@ def create_repo_scan(payload: RepoScanValidateIn, request: Request, session=Depe
             session.add(active_job)
             session.commit()
             session.refresh(active_job)
+        _log_repo_scan_request(
+            session,
+            source_endpoint="create_scan",
+            repo_url_raw=payload.repo_url,
+            validation=validation,
+            created_scan_job_id=active_job.id,
+        )
         return _job_out(request, active_job)
 
     placeholder_job = create_repo_scan_job(
@@ -101,6 +134,13 @@ def create_repo_scan(payload: RepoScanValidateIn, request: Request, session=Depe
     session.add(placeholder_job)
     session.commit()
     session.refresh(placeholder_job)
+    _log_repo_scan_request(
+        session,
+        source_endpoint="create_scan",
+        repo_url_raw=payload.repo_url,
+        validation=validation,
+        created_scan_job_id=placeholder_job.id,
+    )
     return _job_out(request, placeholder_job)
 
 

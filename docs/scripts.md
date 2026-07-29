@@ -131,6 +131,44 @@ docker compose exec api python scripts/test_repo_scan_api.py --owner egovernment
 - Prints the immediate `scan_id`, `status_url`, and `result_url` after creation.
 - `--wait-for-scan` is not silent: it prints visible status progress while polling.
 
+## `scripts/test_repo_validation_api.py`
+Focused tester for provider-aware repo validation and optional scan creation.
+
+Use this when working on supported hosts, unsupported hosts, forge-family inference, and validation telemetry.
+
+### Usage
+Single URL:
+```bash
+cd scripts
+poetry run python test_repo_validation_api.py --repo-url https://github.com/egovernments/DIGIT-OSS --show-summary
+```
+
+Built-in scenario from the shared case file:
+```bash
+cd scripts
+poetry run python test_repo_validation_api.py --scenario github --show-summary
+```
+
+Batch file:
+```bash
+cd scripts
+poetry run python test_repo_validation_api.py --file urls.txt --show-summary
+```
+
+Also create scans for supported repos:
+```bash
+cd scripts
+poetry run python test_repo_validation_api.py --file urls.txt --create-scan --show-summary
+```
+
+### Notes
+- Reads the API key from `API_KEY`, `API_KEY_FILE`, or local `secrets/api_key`.
+- Uses `scripts/repo_validation_cases.json` by default for scenario-driven testing.
+- Prints provider, family, confidence, accessibility, support, and `result_class` for each tested URL.
+- Compares actual responses against expected outcomes and prints `PASS` / `FAIL` per case.
+- `--strict` exits non-zero if any case fails its expected result.
+- This is the main script to tweak when testing expanded repo-provider validation behavior.
+
 ## `scripts/db_checks.py`
 Runs basic database checks and ad hoc SQL against the Postgres database.
 
@@ -175,6 +213,11 @@ SQL
 ### Saved queries
 - `queries/repos_per_owner.sql`
 - `queries/top_active_repos_per_owner.sql`
+- `queries/repo_scan_request_counts_by_provider.sql`
+- `queries/repo_scan_request_counts_by_result.sql`
+- `queries/repo_scan_request_top_hosts.sql`
+- `queries/repo_scan_request_validate_to_create_conversion.sql`
+- `queries/repo_scan_request_recent_requests.sql`
 
 Edit `top_n` and the time window in `queries/top_active_repos_per_owner.sql` as needed.
 
