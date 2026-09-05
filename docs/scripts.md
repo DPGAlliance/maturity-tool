@@ -319,9 +319,8 @@ It polls the database for `pending` repo scan jobs, claims one with DB locking, 
 - Intended to run via the `adhoc_scan_worker` Docker service.
 - Requires `GITHUB_TOKEN`, `API_KEY`, and `OPENAI_API_KEY` because GitHub ad hoc scans now also generate repo summaries.
 - Repo summary generation is a soft-failure step: if the summary fails, the scan still completes and the result page shows a fallback message.
-- The worker currently has no stale-running heartbeat recovery. If it crashes while a job is `running`, that job may need manual reset or retriggering.
-
-Per-repo output includes `scan_status` so blocked or failed repos are recorded without aborting the full owner scan.
+- The worker updates a running job heartbeat every `ADHOC_SCAN_HEARTBEAT_SECONDS` seconds (default: `60`). Jobs without a heartbeat for `ADHOC_SCAN_MAX_RUNNING_SECONDS` seconds (default: `7200`) are marked failed on the next worker poll.
+- Stale jobs are not retried automatically.
 
 ## `scripts/refresh_requirements.sh`
 Exports per-service requirements from Poetry.

@@ -39,6 +39,12 @@ def _log_repo_scan_request(session, *, source_endpoint: str, repo_url_raw: str, 
 
 
 def _job_out(request: Request, job) -> RepoScanJobOut:
+    public_error_message = None
+    if job.status == "failed":
+        public_error_message = "This scan could not be completed. Please try again later."
+    public_summary_error_message = None
+    if job.summary_status == "failed":
+        public_summary_error_message = "The repository summary could not be generated."
     return RepoScanJobOut(
         scan_id=job.id,
         provider=job.provider,
@@ -53,9 +59,9 @@ def _job_out(request: Request, job) -> RepoScanJobOut:
         requested_at=job.requested_at,
         started_at=job.started_at,
         finished_at=job.finished_at,
-        error_message=job.error_message,
+        error_message=public_error_message,
         summary_status=job.summary_status,
-        summary_error_message=job.summary_error_message,
+        summary_error_message=public_summary_error_message,
         summary_finished_at=job.summary_finished_at,
         run_id=job.run_id,
         status_url=str(request.url_for("get_repo_scan_status", scan_id=job.id)),
@@ -87,6 +93,12 @@ def create_repo_scan(payload: RepoScanValidateIn, request: Request, session=Depe
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Repository URL is valid, but ad hoc scanning currently supports GitHub repos only.",
+        )
+    if validation.visibility != "public":
+        _log_repo_scan_request(session, source_endpoint="create_scan", repo_url_raw=payload.repo_url, validation=validation)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ad hoc scanning currently supports public GitHub repositories only.",
         )
 
     active_job = find_active_repo_scan_job(

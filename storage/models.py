@@ -185,6 +185,7 @@ class RepoScanJob(Base):
     stage: Mapped[str | None] = mapped_column(String(50))
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
     summary_status: Mapped[str | None] = mapped_column(String(20))

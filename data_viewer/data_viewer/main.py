@@ -87,6 +87,10 @@ def _parse_direct_repo_target() -> tuple[str | None, str | None, str | None, str
     scan_id_raw = _query_param("scan_id")
     scan_id = int(scan_id_raw) if scan_id_raw and scan_id_raw.isdigit() else None
 
+    # Direct views must be tied to a recorded scan job, not arbitrary query parameters.
+    if scan_id is None:
+        return None, None, None, None, None
+
     if provider and repo_path and provider == "github":
         parts = [part for part in repo_path.split("/") if part]
         if len(parts) == 2:

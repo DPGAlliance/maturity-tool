@@ -13,6 +13,8 @@ Set `API_KEY` in `.env`.
 
 Docker secrets are also supported via `API_KEY_FILE=/run/secrets/api_key`.
 
+For the colleague pilot, the self-assessment website backend calls this API and keeps the key server-side. Do not send `API_KEY` to browser code.
+
 ## Run locally
 ```bash
 poetry -C dpg_butler_api install
@@ -42,7 +44,8 @@ Returns repos for a given owner.
 Validate a submitted repository URL, detect the provider/family, and report whether ad hoc scanning is currently supported for that repo.
 
 Validation currently recognizes a wider set of providers than the scan engine itself. In practice:
-- GitHub: validated and scan-supported
+- Public GitHub repos: validated and scan-supported
+- Private GitHub repos: may validate as accessible to the service token, but are not scan-supported
 - GitLab, Bitbucket, Codeberg, SourceHut: validated where positively identified, but not scan-supported yet
 - Gitea / Forgejo / Gerrit / self-hosted GitLab: best-effort family inference with conservative fallback to `unknown`
 
@@ -58,7 +61,7 @@ Every validation request is logged into the database so incoming provider demand
 
 Create or reuse an ad hoc single-repo scan job. Returns a status URL and a hidden viewer result URL.
 
-Only GitHub repos are scan-supported today. Other recognized providers are returned as valid-but-unsupported and are still logged for telemetry.
+Only public GitHub repos are scan-supported today. Private GitHub repos and other recognized providers are returned as valid-but-unsupported for scanning and are still logged for telemetry.
 
 `GET /repo-scans/{scan_id}`
 
@@ -69,10 +72,12 @@ For GitHub ad hoc scans, a repo summary is also attempted after the repo refresh
 - if refresh succeeds but the repo summary fails, the job still completes and the viewer shows a fallback summary message
 
 The job status response includes:
-- `stage`
-- `summary_status`
-- `summary_error_message`
+- `stage`: `queued`, `refreshing_repo`, `generating_summary`, or `completed`
+- `summary_status`: `not_started`, `running`, `completed`, or `failed`
+- `summary_error_message`: a safe generic message when summary generation fails
 - `summary_finished_at`
+
+Failed scan jobs return a safe generic `error_message`; detailed failure information is kept in worker logs and the database.
 
 ### Metrics (latest by default)
 `GET /repos/{owner}/{repo}/metrics`
@@ -103,9 +108,12 @@ Latest metrics for each repo in the org.
 ## Notes
 - Ad hoc repo scans are processed by the separate `adhoc_scan_worker` service.
 - Direct result links reuse the existing viewer page via query params; there is no separate visible navigation for them.
-- Heartbeat/stale-job recovery is not implemented yet. If the worker crashes while a job is `running`, that job may need manual reset or retriggering.
+- The worker records a heartbeat while processing a job. A `running` job without a heartbeat for two hours is marked failed on the next worker poll; it is not retried automatically.
 - Validation and create-scan attempts are stored in `repo_scan_request_logs` for later review with SQL queries.
-- GitHub ad hoc scans attempt a repo summary after refresh. Summary failures are logged and exposed on the job, but they do not fail the completed scan.
+- GitHub ad hoc scans attempt a repo summary after refresh. Summary failures are logged but do not fail the completed scan; clients receive a safe generic summary error.
+- The result link must include a known `scan_id`; arbitrary owner/repo query parameters do not activate direct result mode.
+- Integrate from a trusted server-side caller, such as the self-assessment website backend. Keep `API_KEY` out of browser code.
+- A running job without a worker heartbeat for two hours is marked failed. It is not retried automatically.
 
 ## Response shape (nested metrics)
 ```json

@@ -10,7 +10,9 @@ start api by:
     poetry run python -m uvicorn dpg_butler_api.main:app --reload --app-dir ..
 ```
 
-.env should speicify API_KEY variable.
+Set `API_KEY` (or `API_KEY_FILE`) before starting the API. For ad hoc GitHub scans, the separate worker also needs `GITHUB_TOKEN`, `API_KEY`, and `OPENAI_API_KEY`.
+
+The self-assessment website should call this API from its backend and keep `API_KEY` server-side. The colleague pilot accepts public GitHub repositories only.
 
 You can test the api by:
 

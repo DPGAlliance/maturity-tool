@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, and_, or_, select
 
 from storage.models import RepoScanJob
 
@@ -91,6 +91,7 @@ def claim_next_pending_repo_scan_job(session) -> dict | None:
         job.status = SCAN_STATUS_RUNNING
         job.stage = SCAN_STAGE_REFRESHING_REPO
         job.started_at = utc_now()
+        job.heartbeat_at = utc_now()
         job.finished_at = None
         job.error_message = None
         job.summary_status = SUMMARY_STATUS_NOT_STARTED
@@ -111,6 +112,35 @@ def claim_next_pending_repo_scan_job(session) -> dict | None:
             "result_url": job.result_url,
             "requested_at": job.requested_at,
         }
+
+
+def record_repo_scan_job_heartbeat(session, job_id: int) -> None:
+    job = session.get(RepoScanJob, job_id)
+    if job is None or job.status != SCAN_STATUS_RUNNING:
+        return
+    job.heartbeat_at = utc_now()
+    session.add(job)
+    session.commit()
+
+
+def fail_stale_running_repo_scan_jobs(session, *, max_age_seconds: float) -> list[int]:
+    cutoff = utc_now() - timedelta(seconds=max_age_seconds)
+    jobs = session.execute(
+        select(RepoScanJob).where(
+            RepoScanJob.status == SCAN_STATUS_RUNNING,
+            or_(
+                RepoScanJob.heartbeat_at < cutoff,
+                and_(RepoScanJob.heartbeat_at.is_(None), RepoScanJob.started_at < cutoff),
+            ),
+        )
+    ).scalars().all()
+    for job in jobs:
+        job.status = SCAN_STATUS_FAILED
+        job.finished_at = utc_now()
+        job.error_message = "Worker heartbeat expired before the scan finished."
+        session.add(job)
+    session.commit()
+    return [job.id for job in jobs]
 
 
 def update_repo_scan_job_stage(
