@@ -27,6 +27,7 @@ from data import (
     get_branches_data,
     get_commits_data,
     get_owner_repos_by_activity,
+    get_owner_metrics_export,
     get_repo_scan_job,
     get_releases_data,
     get_issues_data,
@@ -35,6 +36,7 @@ from data import (
     get_repo_summary_db,
     get_org_summary_db,
 )
+from exports import owner_metrics_to_csv, owner_metrics_to_json
 from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
 from storage.cache import get_or_create_repo, get_last_fetch_at, has_cache_entry, record_fetch, upsert_branches, upsert_commits, upsert_issues, upsert_prs, upsert_releases
 from storage.db import get_session, init_db
@@ -100,6 +102,42 @@ def _parse_direct_repo_target() -> tuple[str | None, str | None, str | None, str
     if owner and repo:
         return provider or "github", repo_path or f"{owner}/{repo}", owner, repo, scan_id
     return None, None, None, None, scan_id
+
+
+def _owner_export_files(session, owner: str) -> tuple[str, str] | None:
+    export_data = get_owner_metrics_export(session, owner)
+    if not export_data["repos"]:
+        return None
+    return owner_metrics_to_csv(export_data), owner_metrics_to_json(export_data)
+
+
+def _display_owner_export_button(
+    export_files: tuple[str, str] | None,
+    owner: str,
+    *,
+    export_format: str,
+    key_prefix: str,
+) -> None:
+    if export_files is None:
+        return
+    csv_data, json_data = export_files
+    safe_owner = owner.replace("/", "-")
+    if export_format == "csv":
+        st.download_button(
+            "CSV Data",
+            data=csv_data,
+            file_name=f"{safe_owner}-maturity-metrics.csv",
+            mime="text/csv",
+            key=f"{key_prefix}_csv",
+        )
+    else:
+        st.download_button(
+            "JSON Data",
+            data=json_data,
+            file_name=f"{safe_owner}-maturity-metrics.json",
+            mime="application/json",
+            key=f"{key_prefix}_json",
+        )
 
 def fetch_repos_for_owner(owner, token):
     """Fetch public repos for a given owner using GitHub REST API."""
@@ -193,16 +231,35 @@ def main():
         repo = direct_repo
         st.caption(f"Direct result view for {owner}/{repo}")
         source_url = f"https://github.com/{owner}/{repo}"
-        link_button = getattr(st, "link_button", None)
-        if callable(link_button):
-            link_button("Go to source", source_url)
-        else:
-            st.markdown(f"[Go to source]({source_url})")
+        export_files = _owner_export_files(session, owner)
+        source_col, csv_col, json_col = st.columns([1, 1, 1], gap="small")
+        with source_col:
+            link_button = getattr(st, "link_button", None)
+            if callable(link_button):
+                link_button("Go to source", source_url)
+            else:
+                st.markdown(f"[Go to source]({source_url})")
+        with csv_col:
+            _display_owner_export_button(
+                export_files,
+                owner,
+                export_format="csv",
+                key_prefix=f"direct_{direct_scan_id}",
+            )
+        with json_col:
+            _display_owner_export_button(
+                export_files,
+                owner,
+                export_format="json",
+                key_prefix=f"direct_{direct_scan_id}",
+            )
+        if export_files is None:
+            st.caption("No cached metrics are available for this owner yet.")
     else:
         # Repository selection
         st.subheader("Repository Selection")
         with st.container():
-            col_owner, col_repo, col_source = st.columns([3, 3, 1])
+            col_owner, col_repo, col_actions = st.columns([3, 3, 3], gap="small")
 
             with col_owner:
                 # Provide suggestions via selectbox but allow a free-text owner by choosing "Other"
@@ -246,16 +303,35 @@ def main():
                         disabled=True,
                     )
 
-            with col_source:
-                # Spacer so the button aligns visually with the dropdowns.
+            export_files = _owner_export_files(session, owner) if use_db_cache and session and owner else None
+
+            with col_actions:
                 st.markdown("<div style='height: 0.25rem'></div>", unsafe_allow_html=True)
-                if owner and repo:
-                    source_url = f"https://github.com/{owner}/{repo}"
-                    link_button = getattr(st, "link_button", None)
-                    if callable(link_button):
-                        link_button("Go to source", source_url)
-                    else:
-                        st.markdown(f"[Go to source]({source_url})")
+                col_source, col_csv, col_json = st.columns([1, 1, 1], gap="small")
+                with col_source:
+                    if owner and repo:
+                        source_url = f"https://github.com/{owner}/{repo}"
+                        link_button = getattr(st, "link_button", None)
+                        if callable(link_button):
+                            link_button("Go to source", source_url)
+                        else:
+                            st.markdown(f"[Go to source]({source_url})")
+                with col_csv:
+                    _display_owner_export_button(
+                        export_files,
+                        owner or "owner",
+                        export_format="csv",
+                        key_prefix="selected_owner",
+                    )
+                with col_json:
+                    _display_owner_export_button(
+                        export_files,
+                        owner or "owner",
+                        export_format="json",
+                        key_prefix="selected_owner",
+                    )
+                if export_files is None and owner:
+                    st.caption("No cached metrics are available for this owner yet.")
 
         if not owner or not repo:
             if owner and use_db_cache and session:

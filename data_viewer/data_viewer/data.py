@@ -1,4 +1,5 @@
 from maturity_tools.github_call import process_commits, process_branches, process_releases, process_issues, process_prs
+from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
@@ -374,6 +375,64 @@ def get_owner_repos_by_activity(session, owner: str) -> list[str]:
         .where(Repo.owner == owner)
         .order_by(activity_score.desc().nulls_last(), Repo.name)
     ).scalars().all()
+
+
+def get_owner_metrics_export(session, owner: str) -> dict:
+    latest_run_id = (
+        select(Run.id)
+        .join(Metric, Metric.run_id == Run.id)
+        .where(Run.repo_id == Repo.id)
+        .order_by(Run.run_started_at.desc(), Run.id.desc())
+        .limit(1)
+        .correlate(Repo)
+        .scalar_subquery()
+    )
+    rows = session.execute(
+        select(
+            Repo.name.label("repo_name"),
+            Run.id.label("run_id"),
+            Run.run_started_at.label("run_started_at"),
+            Metric.scope.label("metric_scope"),
+            Metric.name.label("metric_name"),
+            Metric.value_int,
+            Metric.value_float,
+            Metric.value_text,
+            Metric.value_json,
+        )
+        .join(Run, Run.repo_id == Repo.id)
+        .join(Metric, Metric.run_id == Run.id)
+        .where(Repo.owner == owner, Run.id == latest_run_id)
+        .order_by(Repo.name, Metric.scope, Metric.name)
+    ).all()
+
+    repos: dict[str, dict] = {}
+    for row in rows:
+        repo = repos.setdefault(
+            row.repo_name,
+            {
+                "repo": row.repo_name,
+                "run": {
+                    "id": row.run_id,
+                    "started_at": row.run_started_at.isoformat(),
+                },
+                "metrics": {},
+            },
+        )
+        if row.value_int is not None:
+            value = row.value_int
+        elif row.value_float is not None:
+            value = row.value_float
+        elif row.value_text is not None:
+            value = row.value_text
+        else:
+            value = row.value_json
+        repo["metrics"].setdefault(row.metric_scope, {})[row.metric_name] = value
+
+    return {
+        "owner": owner,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "repos": list(repos.values()),
+    }
 
 
 def get_repo_scan_job(session, scan_id: int) -> RepoScanJob | None:

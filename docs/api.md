@@ -105,6 +105,15 @@ Latest metrics for each repo in the org.
 
 `POST /orgs/{owner}/summary`
 
+### Viewer metric exports
+
+The database-backed viewer can download the latest stored metric run for every cached repository of the selected owner as CSV or JSON.
+
+- CSV uses one row per repository and thematic columns such as `repo.stars` and `commits.total_commits`.
+- JSON preserves the metric scope grouping (`repo`, `commits`, `issues`, `prs`, `releases`, and `activity`).
+- Downloads exclude raw GitHub tables and LLM summaries.
+- Downloads are generated from Postgres only; they do not call GitHub or write to the database.
+
 ## Notes
 - Ad hoc repo scans are processed by the separate `adhoc_scan_worker` service.
 - Direct result links reuse the existing viewer page via query params; there is no separate visible navigation for them.
