@@ -67,6 +67,36 @@ Secrets can be provided via either env vars (e.g. `GITHUB_TOKEN`) or Docker-secr
   metrics snapshot.
 - If cache is stale, it refetches raw data and updates the cache.
 
+## `scripts/collect_dependency_vulnerabilities.py`
+Experimental, local-only collector for known vulnerabilities affecting exact package versions found in supported dependency lockfiles. It does not write to Postgres, the API, the viewer, scheduled refreshes, or LLM summaries.
+
+### Usage
+```bash
+cd scripts
+poetry run python collect_dependency_vulnerabilities.py --owner egovernments --max-repos 5
+```
+
+To inspect a single repository:
+```bash
+cd scripts
+poetry run python collect_dependency_vulnerabilities.py --owner egovernments --repo DIGIT-Frontend
+```
+
+### Coverage and limits
+- Supports npm `package-lock.json` lockfile versions 2 and 3, `go.sum`, `Cargo.lock`, `poetry.lock`, and pinned `requirements*.txt` entries.
+- Detects Maven/Gradle files but does not analyze them without a resolved lockfile. It does not infer installed versions from `pom.xml` or build declarations.
+- Reports `no_supported_lockfile`, `no_dependency_files`, `partial`, `blocked`, and `error` states. These states are not vulnerability-free results.
+- Uses the deps.dev `v3alpha/versionbatch` API to obtain advisory IDs, then retrieves advisory CVSS/CVE details. This is an experimental API surface; the output records the API version used.
+- A GitHub token is optional for public repositories but recommended for rate-limit headroom. Configure `GITHUB_TOKEN` or `GITHUB_TOKEN_FILE` when available.
+
+### Outputs
+The default output root is `.cache/dependency_vulnerabilities/<owner or owner__repo>/`:
+- `repo_dependency_vulnerabilities.csv` and `.json`: repository-level coverage, lockfile evidence, and advisory counts.
+- `dependency_vulnerabilities.csv` and `.json`: one row per affected exact package version and advisory, including source lockfile paths, PURL, CVSS, and CVE aliases.
+- `summary.json`: aggregate coverage and severity counts.
+
+The shared response caches are stored under `.cache/dependency_vulnerabilities/caches/`. Use `--refresh-cache` to re-fetch GitHub and deps.dev data.
+
 ## `scripts/test_cached_api.py`
 Quickly probes the cached/read-only API endpoints and prints status + JSON previews.
 
