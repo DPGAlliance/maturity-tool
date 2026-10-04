@@ -228,6 +228,47 @@ def build_org_payload(
     return payload
 
 
+def build_org_query_results(repos_payload: List[dict], top_n: int = 5) -> Dict[str, Any]:
+    """Derive deterministic org-level facts from the metrics sent to the model."""
+    def activity_value(repo_payload: dict, name: str, default: Any = 0) -> Any:
+        activity = (repo_payload.get("metrics") or {}).get("activity") or {}
+        value = activity.get(name)
+        return default if value is None else value
+
+    def ranking_key(repo_payload: dict) -> Tuple[float, float, str]:
+        try:
+            score = float(activity_value(repo_payload, "score_90d"))
+        except (TypeError, ValueError):
+            score = 0.0
+        last_commit_at = activity_value(repo_payload, "last_commit_at", "")
+        try:
+            last_commit_timestamp = datetime.fromisoformat(
+                str(last_commit_at).replace("Z", "+00:00")
+            ).timestamp()
+        except (TypeError, ValueError):
+            last_commit_timestamp = 0.0
+        return (-score, -last_commit_timestamp, repo_payload["repo"])
+
+    ranked_repos = sorted(repos_payload, key=ranking_key)
+    top_active_repos = [
+        {
+            "owner": repo_payload["owner"],
+            "repo": repo_payload["repo"],
+            "activity_score": activity_value(repo_payload, "score_90d"),
+            "commits_90d": activity_value(repo_payload, "commits_90d"),
+            "prs_merged_90d": activity_value(repo_payload, "prs_merged_90d"),
+            "issues_closed_90d": activity_value(repo_payload, "issues_closed_90d"),
+            "last_commit_at": activity_value(repo_payload, "last_commit_at", None),
+        }
+        for repo_payload in ranked_repos[:top_n]
+    ]
+    return {
+        "repo_count": len(repos_payload),
+        "top_active_repos": top_active_repos,
+        "top_active_window_days": 90,
+    }
+
+
 def call_openai(client: OpenAI, model: str, prompt: str, data: dict) -> str:
     rendered = prompt.replace("{{DATA}}", json.dumps(data, ensure_ascii=False))
     response = client.chat.completions.create(
@@ -350,6 +391,7 @@ def summarize_org(
         return None
 
     prompt, prompt_version = load_prompt(prompt_path)
+    query_results = query_results or build_org_query_results(org_metrics)
     openai_payload = build_org_payload(owner, org_metrics, query_results=query_results)
     summary_text = call_openai(client, model, prompt, openai_payload)
     butler_payload = {
@@ -360,6 +402,7 @@ def summarize_org(
                 "metadata_json": {
                     "reasons": reasons,
                     "history_limit": history_limit,
+                    "repo_count": query_results["repo_count"],
                 },
             }
 

@@ -1,13 +1,13 @@
-Prompt-Version: v1
+Prompt-Version: v2
 Description: Summarize an organization using per-repo metrics and trends.
 
 You are an analyst writing a concise, factual portfolio summary.
 Use only the provided data. Do not invent facts.
 Use markdown notation. 
 
-Write a short org-level summary covering Overall health and activity trends across repos. State how many repos are there under this org.
+Write a short org-level summary covering Overall health and activity trends across repos. State how many analyzed repositories are included.
 Then go into detail on:
-- A list of top 5 notable strong repos (by RECENT activity/health)
+- A compact table of the top 5 notable strong repos (by RECENT activity/health)
 - A list of interesting repositories with high overall activity but recent declines in health/activity
 - Contributor dynamics and risks
 
@@ -30,6 +30,11 @@ If `query_results` is present:
 - Use `query_results.top_active_repos` as the authoritative ranking for recent activity.
 - Use the per-repo metrics in `repos` to interpret health, contributor dynamics,
   and possible risks behind those rankings.
+- For "Top 5 Notable Strong Repositories", render exactly one Markdown table with
+  five rows and these columns: Repository, Recent activity, Last commit. Make
+  each Recent activity cell one short, semicolon-separated phrase including the
+  activity score, commits, merged PRs, and closed issues. Do not add nested
+  lists or prose below individual table rows.
 
 Data:
 {{DATA}}
