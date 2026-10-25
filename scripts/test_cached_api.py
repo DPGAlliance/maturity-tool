@@ -1,11 +1,31 @@
 import argparse
 import os
+from pathlib import Path
+import sys
 from typing import Optional
 
 import requests
 from dotenv import load_dotenv
 
-repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+repo_root = Path(__file__).resolve().parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
+from storage.secrets import get_secret
+
+
+def load_api_key() -> str:
+    api_key = get_secret("API_KEY")
+    if api_key:
+        return api_key
+
+    fallback_path = repo_root / "secrets" / "api_key"
+    if fallback_path.exists():
+        return fallback_path.read_text(encoding="utf-8").strip()
+
+    raise SystemExit(
+        "API_KEY is required. Set API_KEY or API_KEY_FILE, or create secrets/api_key."
+    )
 
 
 def build_headers(api_key: str) -> dict:
@@ -38,18 +58,16 @@ def request_get(session: requests.Session, url: str, label: str) -> Optional[req
         return None
 
 
-def main():
-    load_dotenv(os.path.join(repo_root, ".env"))
-    parser = argparse.ArgumentParser(description="Test the Maturity Tool API.")
+def main() -> None:
+    load_dotenv(repo_root / ".env")
+    parser = argparse.ArgumentParser(description="Test the cached/read-only Maturity Tool API endpoints.")
     parser.add_argument("--base-url", default="http://localhost:8000")
     parser.add_argument("--owner", help="GitHub owner/org")
     parser.add_argument("--repo", help="Repo name")
     parser.add_argument("--limit", type=int, default=3)
     args = parser.parse_args()
 
-    api_key = os.getenv("API_KEY")
-    if not api_key:
-        raise SystemExit("API_KEY is required in .env or environment")
+    api_key = load_api_key()
 
     base_url = args.base_url.rstrip("/")
     owner = args.owner or os.getenv("API_OWNER")

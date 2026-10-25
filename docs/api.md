@@ -13,6 +13,8 @@ Set `API_KEY` in `.env`.
 
 Docker secrets are also supported via `API_KEY_FILE=/run/secrets/api_key`.
 
+For the colleague pilot, the self-assessment website backend calls this API and keeps the key server-side. Do not send `API_KEY` to browser code.
+
 ## Run locally
 ```bash
 poetry -C dpg_butler_api install
@@ -35,6 +37,47 @@ docker compose --profile scheduler up -d --build
 `GET /repos?owner=<org>`
 
 Returns repos for a given owner.
+
+### Ad hoc repo scans
+`POST /repo-scans/validate`
+
+Validate a submitted repository URL, detect the provider/family, and report whether ad hoc scanning is currently supported for that repo.
+
+Validation currently recognizes a wider set of providers than the scan engine itself. In practice:
+- Public GitHub repos: validated and scan-supported
+- Private GitHub repos: may validate as accessible to the service token, but are not scan-supported
+- GitLab, Bitbucket, Codeberg, SourceHut: validated where positively identified, but not scan-supported yet
+- Gitea / Forgejo / Gerrit / self-hosted GitLab: best-effort family inference with conservative fallback to `unknown`
+
+The validation response includes:
+- `provider`
+- `provider_family`
+- `confidence`
+- `result_class`
+
+Every validation request is logged into the database so incoming provider demand can be reviewed later via SQL.
+
+`POST /repo-scans`
+
+Create or reuse an ad hoc single-repo scan job. Returns a status URL and a hidden viewer result URL.
+
+Only public GitHub repos are scan-supported today. Private GitHub repos and other recognized providers are returned as valid-but-unsupported for scanning and are still logged for telemetry.
+
+`GET /repo-scans/{scan_id}`
+
+Return job status for an ad hoc repo scan (`pending`, `running`, `completed`, `failed`).
+
+For GitHub ad hoc scans, a repo summary is also attempted after the repo refresh succeeds. Summary generation is a soft-failure step:
+- if refresh fails, the job fails
+- if refresh succeeds but the repo summary fails, the job still completes and the viewer shows a fallback summary message
+
+The job status response includes:
+- `stage`: `queued`, `refreshing_repo`, `generating_summary`, or `completed`
+- `summary_status`: `not_started`, `running`, `completed`, or `failed`
+- `summary_error_message`: a safe generic message when summary generation fails
+- `summary_finished_at`
+
+Failed scan jobs return a safe generic `error_message`; detailed failure information is kept in worker logs and the database.
 
 ### Metrics (latest by default)
 `GET /repos/{owner}/{repo}/metrics`
@@ -61,6 +104,25 @@ Latest metrics for each repo in the org.
 `POST /repos/{owner}/{repo}/summary`
 
 `POST /orgs/{owner}/summary`
+
+### Viewer metric exports
+
+The database-backed viewer can download the latest stored metric run for every cached repository of the selected owner as CSV or JSON.
+
+- CSV uses one row per repository and thematic columns such as `repo.stars` and `commits.total_commits`.
+- JSON preserves the metric scope grouping (`repo`, `commits`, `issues`, `prs`, `releases`, and `activity`).
+- Downloads exclude raw GitHub tables and LLM summaries.
+- Downloads are generated from Postgres only; they do not call GitHub or write to the database.
+
+## Notes
+- Ad hoc repo scans are processed by the separate `adhoc_scan_worker` service.
+- Direct result links reuse the existing viewer page via query params; there is no separate visible navigation for them.
+- The worker records a heartbeat while processing a job. A `running` job without a heartbeat for two hours is marked failed on the next worker poll; it is not retried automatically.
+- Validation and create-scan attempts are stored in `repo_scan_request_logs` for later review with SQL queries.
+- GitHub ad hoc scans attempt a repo summary after refresh. Summary failures are logged but do not fail the completed scan; clients receive a safe generic summary error.
+- The result link must include a known `scan_id`; arbitrary owner/repo query parameters do not activate direct result mode.
+- Integrate from a trusted server-side caller, such as the self-assessment website backend. Keep `API_KEY` out of browser code.
+- A running job without a worker heartbeat for two hours is marked failed. It is not retried automatically.
 
 ## Response shape (nested metrics)
 ```json

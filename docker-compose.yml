@@ -31,12 +31,46 @@ services:
       DB_USER: ${POSTGRES_USER:-maturity}
       DB_PASSWORD_FILE: /run/secrets/postgres_password
       API_KEY_FILE: /run/secrets/api_key
+      GITHUB_TOKEN_FILE: /run/secrets/github_token
+      VIEWER_BASE_URL: ${VIEWER_BASE_URL:-http://localhost:8501}
     secrets:
       - postgres_password
       - api_key
+      - github_token
     ports:
       - "127.0.0.1:8000:8000"
     command: ["uvicorn", "dpg_butler_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  adhoc_scan_worker:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-maturity}
+      DB_USER: ${POSTGRES_USER:-maturity}
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
+      GITHUB_TOKEN_FILE: /run/secrets/github_token
+      API_KEY_FILE: /run/secrets/api_key
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      ADHOC_SCAN_POLL_SECONDS: ${ADHOC_SCAN_POLL_SECONDS:-5}
+      ADHOC_SCAN_HEARTBEAT_SECONDS: ${ADHOC_SCAN_HEARTBEAT_SECONDS:-60}
+      ADHOC_SCAN_MAX_RUNNING_SECONDS: ${ADHOC_SCAN_MAX_RUNNING_SECONDS:-7200}
+      SUMMARY_BASE_URL: ${SUMMARY_BASE_URL:-http://api:8000}
+      SUMMARY_MODEL: ${SUMMARY_MODEL:-gpt-4o-mini}
+      SUMMARY_HISTORY: ${SUMMARY_HISTORY:-5}
+      SUMMARY_MAX_AGE_DAYS: ${SUMMARY_MAX_AGE_DAYS:-30}
+    secrets:
+      - postgres_password
+      - github_token
+      - api_key
+      - openai_api_key
+    command: ["python", "scripts/adhoc_scan_worker.py"]
 
   viewer:
     build:

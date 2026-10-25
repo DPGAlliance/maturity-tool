@@ -1,0 +1,215 @@
+{
+  "cases": [
+    {
+      "id": "github-valid",
+      "scenario": "github",
+      "label": "GitHub valid public repo",
+      "repo_url": "https://github.com/egovernments/DIGIT-OSS",
+      "create_scan": true,
+      "expect": {
+        "provider": "github",
+        "provider_family": "github",
+        "valid": true,
+        "accessible": true,
+        "scan_supported": true,
+        "result_class": "supported_repo"
+      }
+    },
+    {
+      "id": "github-missing",
+      "scenario": "github",
+      "label": "GitHub missing repo",
+      "repo_url": "https://github.com/egovernments/this-repo-should-not-exist-xyz",
+      "expect": {
+        "provider": "github",
+        "provider_family": "github",
+        "valid": false,
+        "accessible": false,
+        "scan_supported": true,
+        "result_class": "repo_not_found"
+      }
+    },
+    {
+      "id": "gitlab-valid",
+      "scenario": "gitlab",
+      "label": "GitLab valid public repo",
+      "repo_url": "https://gitlab.com/gitlab-org/gitlab",
+      "expect": {
+        "provider": "gitlab",
+        "provider_family": "gitlab",
+        "valid": true,
+        "accessible": true,
+        "scan_supported": false,
+        "result_class": "valid_repo_unsupported_provider"
+      }
+    },
+    {
+      "id": "gitlab-missing",
+      "scenario": "gitlab",
+      "label": "GitLab missing repo",
+      "repo_url": "https://gitlab.com/gitlab-org/this-repo-should-not-exist-xyz",
+      "expect": {
+        "provider": "gitlab",
+        "provider_family": "gitlab",
+        "valid": false,
+        "accessible": false,
+        "scan_supported": false,
+        "result_class": "repo_not_found"
+      }
+    },
+    {
+      "id": "bitbucket-valid",
+      "scenario": "bitbucket",
+      "label": "Bitbucket valid public repo",
+      "repo_url": "https://bitbucket.org/tutorials/tutorials.bitbucket.org",
+      "expect": {
+        "provider": "bitbucket",
+        "provider_family": "bitbucket",
+        "valid": true,
+        "accessible": true,
+        "scan_supported": false,
+        "result_class": "valid_repo_unsupported_provider"
+      }
+    },
+    {
+      "id": "bitbucket-missing",
+      "scenario": "bitbucket",
+      "label": "Bitbucket missing repo",
+      "repo_url": "https://bitbucket.org/tutorials/this-repo-should-not-exist-xyz",
+      "expect": {
+        "provider": "bitbucket",
+        "provider_family": "bitbucket",
+        "valid": false,
+        "accessible": false,
+        "scan_supported": false,
+        "result_class": "repo_not_found"
+      }
+    },
+    {
+      "id": "codeberg-valid",
+      "scenario": "codeberg",
+      "label": "Codeberg valid public repo",
+      "repo_url": "https://codeberg.org/forgejo/forgejo",
+      "expect": {
+        "provider": "codeberg",
+        "provider_family": "forgejo",
+        "valid": true,
+        "accessible": true,
+        "scan_supported": false,
+        "result_class": "valid_repo_unsupported_provider"
+      }
+    },
+    {
+      "id": "codeberg-missing",
+      "scenario": "codeberg",
+      "label": "Codeberg missing repo",
+      "repo_url": "https://codeberg.org/forgejo/this-repo-should-not-exist-xyz",
+      "expect": {
+        "provider": "codeberg",
+        "provider_family": "forgejo",
+        "valid": false,
+        "accessible": false,
+        "scan_supported": false,
+        "result_class": "repo_not_found"
+      }
+    },
+    {
+      "id": "gitea-valid",
+      "scenario": "gitea",
+      "label": "Gitea-family valid public repo",
+      "repo_url": "https://gitea.com/gitea/tea",
+      "expect": {
+        "provider": "gitea",
+        "provider_family": "gitea",
+        "valid": true,
+        "accessible": true,
+        "scan_supported": false,
+        "result_class": "valid_repo_unsupported_provider"
+      }
+    },
+    {
+      "id": "sourcehut-valid",
+      "scenario": "sourcehut",
+      "label": "SourceHut valid public repo",
+      "repo_url": "https://git.sr.ht/~sircmpwn/sr.ht-docs",
+      "expect": {
+        "provider": "sourcehut",
+        "provider_family": "sourcehut",
+        "valid": true,
+        "accessible": true,
+        "scan_supported": false,
+        "result_class": "valid_repo_unsupported_provider"
+      }
+    },
+    {
+      "id": "sourcehut-missing",
+      "scenario": "sourcehut",
+      "label": "SourceHut missing repo",
+      "repo_url": "https://git.sr.ht/~sircmpwn/this-repo-should-not-exist-xyz",
+      "expect": {
+        "provider": "sourcehut",
+        "provider_family": "sourcehut",
+        "valid": false,
+        "accessible": false,
+        "scan_supported": false,
+        "result_class": "repo_not_found"
+      }
+    },
+    {
+      "id": "gerrit-valid",
+      "scenario": "gerrit",
+      "label": "Gerrit project valid",
+      "repo_url": "https://gerrit.googlesource.com/gerrit",
+      "expect": {
+        "provider": "gerrit",
+        "provider_family": "gerrit",
+        "valid": true,
+        "accessible": true,
+        "scan_supported": false,
+        "result_class": "valid_repo_unsupported_provider"
+      }
+    },
+    {
+      "id": "github-issue-page",
+      "scenario": "github",
+      "label": "GitHub issue URL canonicalizes to repo",
+      "repo_url": "https://github.com/DPGAlliance/maturity-tool/issues/23",
+      "expect": {
+        "provider": "github",
+        "provider_family": "github",
+        "valid": true,
+        "accessible": true,
+        "scan_supported": true,
+        "result_class": "supported_repo"
+      }
+    },
+    {
+      "id": "unsupported-host",
+      "scenario": "unknown",
+      "label": "Unsupported random host",
+      "repo_url": "https://example.org/some/repo",
+      "expect": {
+        "provider": "unknown",
+        "provider_family": "unknown",
+        "valid": false,
+        "accessible": false,
+        "scan_supported": false,
+        "result_class": "unknown_provider"
+      }
+    },
+    {
+      "id": "invalid-url",
+      "scenario": "invalid",
+      "label": "Malformed URL",
+      "repo_url": "not-a-url",
+      "expect": {
+        "provider": null,
+        "provider_family": null,
+        "valid": false,
+        "accessible": false,
+        "scan_supported": false,
+        "result_class": "invalid_url"
+      }
+    }
+  ]
+}

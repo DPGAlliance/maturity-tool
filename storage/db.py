@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import URL, create_engine
+from sqlalchemy import URL, create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from storage.models import Base
@@ -43,3 +43,17 @@ def get_session(database_url: str | None = None):
 def init_db(database_url: str | None = None) -> None:
     engine = get_engine(database_url)
     Base.metadata.create_all(engine)
+    # create_all() does not add columns to tables created by older releases.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                ALTER TABLE repo_scan_jobs
+                ADD COLUMN IF NOT EXISTS stage VARCHAR(50),
+                ADD COLUMN IF NOT EXISTS summary_status VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS summary_error_message TEXT,
+                ADD COLUMN IF NOT EXISTS summary_finished_at TIMESTAMP WITH TIME ZONE,
+                ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP WITH TIME ZONE
+                """
+            )
+        )

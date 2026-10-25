@@ -27,6 +27,8 @@ from data import (
     get_branches_data,
     get_commits_data,
     get_owner_repos_by_activity,
+    get_owner_metrics_export,
+    get_repo_scan_job,
     get_releases_data,
     get_issues_data,
     get_prs_data,
@@ -34,6 +36,7 @@ from data import (
     get_repo_summary_db,
     get_org_summary_db,
 )
+from exports import owner_metrics_to_csv, owner_metrics_to_json
 from maturity_tools.analyzers import BranchAnalyzer, CommitAnalyzer, ReleaseAnalyzer, IssuePRAnalyzer
 from storage.cache import get_or_create_repo, get_last_fetch_at, has_cache_entry, record_fetch, upsert_branches, upsert_commits, upsert_issues, upsert_prs, upsert_releases
 from storage.db import get_session, init_db
@@ -64,6 +67,77 @@ def _format_last_fetch(dt: datetime | None) -> str:
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return str(dt)
+
+
+def _query_param(name: str) -> str | None:
+    try:
+        value = st.query_params.get(name)
+    except Exception:
+        return None
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return value[0] if value else None
+    return str(value)
+
+
+def _parse_direct_repo_target() -> tuple[str | None, str | None, str | None, str | None, int | None]:
+    provider = _query_param("provider")
+    repo_path = _query_param("repo_path")
+    owner = _query_param("owner")
+    repo = _query_param("repo")
+    scan_id_raw = _query_param("scan_id")
+    scan_id = int(scan_id_raw) if scan_id_raw and scan_id_raw.isdigit() else None
+
+    # Direct views must be tied to a recorded scan job, not arbitrary query parameters.
+    if scan_id is None:
+        return None, None, None, None, None
+
+    if provider and repo_path and provider == "github":
+        parts = [part for part in repo_path.split("/") if part]
+        if len(parts) == 2:
+            owner = parts[0]
+            repo = parts[1]
+
+    if owner and repo:
+        return provider or "github", repo_path or f"{owner}/{repo}", owner, repo, scan_id
+    return None, None, None, None, scan_id
+
+
+def _owner_export_files(session, owner: str) -> tuple[str, str] | None:
+    export_data = get_owner_metrics_export(session, owner)
+    if not export_data["repos"]:
+        return None
+    return owner_metrics_to_csv(export_data), owner_metrics_to_json(export_data)
+
+
+def _display_owner_export_button(
+    export_files: tuple[str, str] | None,
+    owner: str,
+    *,
+    export_format: str,
+    key_prefix: str,
+) -> None:
+    if export_files is None:
+        return
+    csv_data, json_data = export_files
+    safe_owner = owner.replace("/", "-")
+    if export_format == "csv":
+        st.download_button(
+            "CSV Data",
+            data=csv_data,
+            file_name=f"{safe_owner}-maturity-metrics.csv",
+            mime="text/csv",
+            key=f"{key_prefix}_csv",
+        )
+    else:
+        st.download_button(
+            "JSON Data",
+            data=json_data,
+            file_name=f"{safe_owner}-maturity-metrics.json",
+            mime="application/json",
+            key=f"{key_prefix}_json",
+        )
 
 def fetch_repos_for_owner(owner, token):
     """Fetch public repos for a given owner using GitHub REST API."""
@@ -104,6 +178,9 @@ def main():
         )
         st.stop()
 
+    direct_provider, direct_repo_path, direct_owner, direct_repo, direct_scan_id = _parse_direct_repo_target()
+    direct_mode = bool(direct_owner and direct_repo)
+
     # DB cache is the default. If DB is unavailable, fall back to live fetch.
     use_db_cache = True
     session = None
@@ -114,69 +191,152 @@ def main():
     except Exception as exc:
         st.warning(f"DB cache unavailable; using live fetch. ({exc})")
         use_db_cache = False
-    
-    # Repository selection
-    st.subheader("Repository Selection")
-    with st.container():
-        col_owner, col_repo, col_source = st.columns([3, 3, 1])
 
-        with col_owner:
-            # Provide suggestions via selectbox but allow a free-text owner by choosing "Other"
-            owner_choice = st.selectbox(
-                "Repository Owner (pick suggestion or choose Other to type)",
-                options=list(DISTINGUISHED_OWNERS) + ["Other (type custom owner...)"],
-                index=0,
-                key="owner_select",
-                help="Pick from suggestions or choose Other to type a custom owner."
-            )
-            if owner_choice and owner_choice.startswith("Other"):
-                owner = st.text_input(
-                    "Custom owner (type a GitHub user or org)",
-                    value="",
-                    key="owner_custom",
-                    help="Type the organization or username you want to analyze."
-                )
-            else:
-                owner = owner_choice
-
-        with col_repo:
-            repo_list = []
-            if owner:
-                if use_db_cache and session:
-                    repo_list = get_owner_repos_by_activity(session, owner)
-                else:
-                    repo_list = fetch_repos_for_owner(owner, GITHUB_TOKEN)
-
-            if repo_list:
-                repo = st.selectbox(
-                    "Repository Name",
-                    repo_list,
-                    index=0,
-                )
-            else:
-                repo = None
-                st.selectbox(
-                    "Repository Name",
-                    ["No cached repos yet" if use_db_cache and session else "No repos found"],
-                    index=0,
-                    disabled=True,
-                )
-
-        with col_source:
-            # Spacer so the button aligns visually with the dropdowns.
-            st.markdown("<div style='height: 0.25rem'></div>", unsafe_allow_html=True)
-            if owner and repo:
-                source_url = f"https://github.com/{owner}/{repo}"
-                link_button = getattr(st, "link_button", None)
-                if callable(link_button):
-                    link_button("Go to source", source_url)
-                else:
-                    st.markdown(f"[Go to source]({source_url})")
-
-    if not owner or not repo:
-        if owner and use_db_cache and session:
-            st.info("No cached repos yet for this owner. Wait for the next refresh.")
+    if direct_mode and not use_db_cache:
+        st.error("Direct result links require the database-backed viewer to be available.")
         st.stop()
+
+    if direct_mode and direct_provider != "github":
+        st.error(f"Direct result links currently support GitHub only. Provider received: {direct_provider}")
+        st.stop()
+
+    if direct_mode and session and direct_scan_id is not None:
+        scan_job = get_repo_scan_job(session, direct_scan_id)
+        if scan_job is None:
+            st.error("This scan link does not reference a known repo scan job.")
+            st.stop()
+        if scan_job.provider != "github":
+            st.error(f"This scan link uses an unsupported provider: {scan_job.provider}")
+            st.stop()
+        if scan_job.owner:
+            direct_owner = scan_job.owner
+        if scan_job.repo:
+            direct_repo = scan_job.repo
+
+        if scan_job.status in {"pending", "running"}:
+            stage_message = f" Current stage: {scan_job.stage}." if scan_job.stage else ""
+            summary_message = ""
+            if scan_job.summary_status == "running":
+                summary_message = " Repo summary is being generated."
+            st.info(f"Scan status: {scan_job.status}.{stage_message}{summary_message} Results are not ready yet.")
+            if scan_job.started_at:
+                st.caption(f"Started: {scan_job.started_at:%Y-%m-%d %H:%M UTC}")
+            st.stop()
+        if scan_job.status == "failed":
+            st.error(f"Scan failed: {scan_job.error_message or 'Unknown error'}")
+            st.stop()
+
+    if direct_mode:
+        owner = direct_owner
+        repo = direct_repo
+        st.caption(f"Direct result view for {owner}/{repo}")
+        source_url = f"https://github.com/{owner}/{repo}"
+        export_files = _owner_export_files(session, owner)
+        source_col, csv_col, json_col = st.columns([1, 1, 1], gap="small")
+        with source_col:
+            link_button = getattr(st, "link_button", None)
+            if callable(link_button):
+                link_button("Go to source", source_url)
+            else:
+                st.markdown(f"[Go to source]({source_url})")
+        with csv_col:
+            _display_owner_export_button(
+                export_files,
+                owner,
+                export_format="csv",
+                key_prefix=f"direct_{direct_scan_id}",
+            )
+        with json_col:
+            _display_owner_export_button(
+                export_files,
+                owner,
+                export_format="json",
+                key_prefix=f"direct_{direct_scan_id}",
+            )
+        if export_files is None:
+            st.caption("No cached metrics are available for this owner yet.")
+    else:
+        # Repository selection
+        st.subheader("Repository Selection")
+        with st.container():
+            col_owner, col_repo, col_actions = st.columns([3, 3, 3], gap="small")
+
+            with col_owner:
+                # Provide suggestions via selectbox but allow a free-text owner by choosing "Other"
+                owner_choice = st.selectbox(
+                    "Repository Owner (pick suggestion or choose Other to type)",
+                    options=list(DISTINGUISHED_OWNERS) + ["Other (type custom owner...)"],
+                    index=0,
+                    key="owner_select",
+                    help="Pick from suggestions or choose Other to type a custom owner."
+                )
+                if owner_choice and owner_choice.startswith("Other"):
+                    owner = st.text_input(
+                        "Custom owner (type a GitHub user or org)",
+                        value="",
+                        key="owner_custom",
+                        help="Type the organization or username you want to analyze."
+                    )
+                else:
+                    owner = owner_choice
+
+            with col_repo:
+                repo_list = []
+                if owner:
+                    if use_db_cache and session:
+                        repo_list = get_owner_repos_by_activity(session, owner)
+                    else:
+                        repo_list = fetch_repos_for_owner(owner, GITHUB_TOKEN)
+
+                if repo_list:
+                    repo = st.selectbox(
+                        "Repository Name",
+                        repo_list,
+                        index=0,
+                    )
+                else:
+                    repo = None
+                    st.selectbox(
+                        "Repository Name",
+                        ["No cached repos yet" if use_db_cache and session else "No repos found"],
+                        index=0,
+                        disabled=True,
+                    )
+
+            export_files = _owner_export_files(session, owner) if use_db_cache and session and owner else None
+
+            with col_actions:
+                st.markdown("<div style='height: 0.25rem'></div>", unsafe_allow_html=True)
+                col_source, col_csv, col_json = st.columns([1, 1, 1], gap="small")
+                with col_source:
+                    if owner and repo:
+                        source_url = f"https://github.com/{owner}/{repo}"
+                        link_button = getattr(st, "link_button", None)
+                        if callable(link_button):
+                            link_button("Go to source", source_url)
+                        else:
+                            st.markdown(f"[Go to source]({source_url})")
+                with col_csv:
+                    _display_owner_export_button(
+                        export_files,
+                        owner or "owner",
+                        export_format="csv",
+                        key_prefix="selected_owner",
+                    )
+                with col_json:
+                    _display_owner_export_button(
+                        export_files,
+                        owner or "owner",
+                        export_format="json",
+                        key_prefix="selected_owner",
+                    )
+                if export_files is None and owner:
+                    st.caption("No cached metrics are available for this owner yet.")
+
+        if not owner or not repo:
+            if owner and use_db_cache and session:
+                st.info("No cached repos yet for this owner. Wait for the next refresh.")
+            st.stop()
 
     # Banner should be outside the selection container.
     last_fetch_placeholder = st.empty()
@@ -272,7 +432,20 @@ def main():
             display_summary(org_summary)
 
         repo_summary = get_repo_summary_db(session, owner, repo)
-        display_summary(repo_summary, missing_message="No summary yet.")
+        scan_job_for_summary = None
+        if direct_mode and direct_scan_id is not None:
+            scan_job_for_summary = get_repo_scan_job(session, direct_scan_id)
+        missing_summary_message = "No summary yet."
+        if direct_mode and direct_scan_id is not None:
+            if scan_job_for_summary and scan_job_for_summary.summary_status == "failed":
+                missing_summary_message = (
+                    "We’re sorry, the repo summary could not be generated for this scan. "
+                    "The repository metrics and charts are still available below."
+                )
+        if scan_job_for_summary and scan_job_for_summary.summary_status == "failed":
+            display_summary(None, missing_message=missing_summary_message)
+        else:
+            display_summary(repo_summary, missing_message=missing_summary_message)
         st.divider()
 
     # releases
