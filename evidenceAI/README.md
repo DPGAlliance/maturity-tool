@@ -16,9 +16,7 @@ docker compose up --build
 
 The health endpoint is available at `http://127.0.0.1:8100/health`.
 
-## Scope Documents
+## Documentation
 
-- [`docs/dpg-evidence-automation-feasibility-brief.md`](docs/dpg-evidence-automation-feasibility-brief.md)
-- [`docs/dpg-nomination-form-autofill-proposal.md`](docs/dpg-nomination-form-autofill-proposal.md)
-- [`docs/maturity-assessment-form-autofill-proposal.md`](docs/maturity-assessment-form-autofill-proposal.md)
-- [`docs/dpg-nomination-and-maturity-assessment-overlap.md`](docs/dpg-nomination-and-maturity-assessment-overlap.md)
+Tracked developer documentation lives in [`docs/`](docs/). Local planning and
+scope material lives in `docs/scope/` and is intentionally not tracked.

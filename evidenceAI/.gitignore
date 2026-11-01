@@ -1,5 +1,5 @@
 .env
-docs/
+/docs/scope/
 secrets/
 .venv/
 __pycache__/
