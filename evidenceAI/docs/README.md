@@ -7,6 +7,7 @@ Available documents:
 
 - [MAT API contract](api.md)
 - [Search discovery](discovery.md)
+- [Source collection](collection.md)
 
 Planned documents include local development instructions, source-collection
 policy, and the MAT field registry.
