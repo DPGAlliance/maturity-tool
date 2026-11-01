@@ -1,6 +1,7 @@
 .env
 /docs/scope/
-secrets/
+secrets/*
+!secrets/README.md
 .venv/
 __pycache__/
 *.py[cod]

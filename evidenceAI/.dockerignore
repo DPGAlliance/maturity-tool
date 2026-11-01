@@ -1,5 +1,6 @@
 .git
 .env
+secrets/
 .venv
 __pycache__/
 *.py[cod]

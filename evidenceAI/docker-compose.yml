@@ -26,9 +26,16 @@ services:
         condition: service_healthy
     environment:
       EVIDENCE_AI_DATABASE_URL: postgresql+psycopg://${EVIDENCE_AI_DB_USER:-evidence_ai}:${EVIDENCE_AI_DB_PASSWORD:-evidence_ai_dev}@db:5432/${EVIDENCE_AI_DB_NAME:-evidence_ai}
+      EVIDENCE_AI_API_KEY_FILE: /run/secrets/evidence_ai_api_key
+    secrets:
+      - evidence_ai_api_key
     ports:
       - "127.0.0.1:${EVIDENCE_AI_API_PORT:-8100}:8000"
     command: ["uvicorn", "evidence_ai.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 volumes:
   evidence_ai_postgres_data:
+
+secrets:
+  evidence_ai_api_key:
+    file: ./secrets/evidence_ai_api_key
