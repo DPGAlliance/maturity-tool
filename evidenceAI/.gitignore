@@ -1,0 +1,10 @@
+.env
+secrets/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+coverage.xml
+htmlcov/
+*.egg-info/

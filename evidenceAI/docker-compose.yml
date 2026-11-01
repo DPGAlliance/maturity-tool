@@ -1,0 +1,34 @@
+name: evidence-ai
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${EVIDENCE_AI_DB_NAME:-evidence_ai}
+      POSTGRES_USER: ${EVIDENCE_AI_DB_USER:-evidence_ai}
+      POSTGRES_PASSWORD: ${EVIDENCE_AI_DB_PASSWORD:-evidence_ai_dev}
+    volumes:
+      - evidence_ai_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      EVIDENCE_AI_DATABASE_URL: postgresql+psycopg://${EVIDENCE_AI_DB_USER:-evidence_ai}:${EVIDENCE_AI_DB_PASSWORD:-evidence_ai_dev}@db:5432/${EVIDENCE_AI_DB_NAME:-evidence_ai}
+    ports:
+      - "127.0.0.1:${EVIDENCE_AI_API_PORT:-8100}:8000"
+    command: ["uvicorn", "evidence_ai.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+volumes:
+  evidence_ai_postgres_data:

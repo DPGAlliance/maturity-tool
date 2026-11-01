@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "evidence-ai"
+version = "0.1.0"
+description = "Evidence collection and validation service for DPG workflows"
+authors = ["DPG Alliance"]
+readme = "README.md"
+packages = [{ include = "evidence_ai", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.136.1"
+uvicorn = { version = "^0.30.0", extras = ["standard"] }
+sqlalchemy = "^2.0.46"
+psycopg = { version = "^3.2.0", extras = ["binary"] }
+alembic = "^1.14.0"
+
+[tool.poetry.group.dev.dependencies]
+httpx = "^0.28.1"
+pytest = "^8.3.4"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

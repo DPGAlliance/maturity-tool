@@ -128,10 +128,13 @@ venv.bak/
 
 # Streamlit secrets
 .streamlit/secrets.toml
+maturity_scraper/.streamlit/secrets.toml
 
 # Docker secrets (file-based, not committed)
 secrets/*
 !secrets/README.md
+maturity_scraper/secrets/*
+!maturity_scraper/secrets/README.md
 
 # Spyder project settings
 .spyderproject
@@ -142,6 +145,7 @@ secrets/*
 
 # mkdocs documentation
 /site
+/maturity_scraper/site
 
 # mypy
 .mypy_cache/

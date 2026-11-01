@@ -11,6 +11,9 @@
 .git
 .gitignore
 site
+**/.cache
+scripts/logs
+secrets
 *.db
 .env
 .streamlit/secrets.toml
