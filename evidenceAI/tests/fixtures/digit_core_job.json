@@ -1,0 +1,12 @@
+{
+  "product_id": "dev-digit-core",
+  "assessment_id": "dev-digit-core-assessment-001",
+  "product_name": "DIGIT Core",
+  "context": {
+    "organization_name": "eGov Foundation",
+    "website_url": "https://core.digit.org",
+    "documentation_urls": ["https://docs.digit.org"],
+    "repository_url": "https://github.com/egovernments/Digit-Core"
+  },
+  "requested_indicators": ["all"]
+}

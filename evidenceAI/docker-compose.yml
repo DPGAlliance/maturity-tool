@@ -33,6 +33,19 @@ services:
       - "127.0.0.1:${EVIDENCE_AI_API_PORT:-8100}:8000"
     command: ["uvicorn", "evidence_ai.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      EVIDENCE_AI_DATABASE_URL: postgresql+psycopg://${EVIDENCE_AI_DB_USER:-evidence_ai}:${EVIDENCE_AI_DB_PASSWORD:-evidence_ai_dev}@db:5432/${EVIDENCE_AI_DB_NAME:-evidence_ai}
+      EVIDENCE_AI_WORKER_POLL_SECONDS: ${EVIDENCE_AI_WORKER_POLL_SECONDS:-5}
+    command: ["python", "-m", "evidence_ai.worker"]
+
 volumes:
   evidence_ai_postgres_data:
 

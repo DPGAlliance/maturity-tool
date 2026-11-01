@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -38,8 +38,8 @@ class AutofillJobCreatedOut(BaseModel):
     job_id: UUID
     product_id: str
     assessment_id: str
-    status: Literal["pending"]
-    stage: Literal["queued"]
+    status: Literal["pending", "running", "completed", "completed_with_warnings", "failed"]
+    stage: str
     status_url: str
 
 
@@ -47,7 +47,11 @@ class AutofillJobStatusOut(BaseModel):
     job_id: UUID
     product_id: str
     assessment_id: str
-    status: Literal["pending"]
-    stage: Literal["queued"]
+    status: Literal["pending", "running", "completed", "completed_with_warnings", "failed"]
+    stage: str
     created_at: datetime
     updated_at: datetime
+    warnings: list[str] = Field(default_factory=list)
+    result: dict[str, Any] = Field(default_factory=dict)
+    error_code: str | None = None
+    error_message: str | None = None

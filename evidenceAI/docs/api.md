@@ -15,8 +15,8 @@ Authorization: Bearer <EVIDENCE_AI_API_KEY>
 
 `POST /v1/mat/autofill-jobs`
 
-The API currently creates an asynchronous queued job. It does not yet collect
-sources or create suggestions.
+The API creates a persistent asynchronous job. The current worker records a
+completed warning and no suggestions until source collection is implemented.
 
 ```json
 {
@@ -30,8 +30,9 @@ sources or create suggestions.
 }
 ```
 
-Use `Idempotency-Key` when retrying a request. Reusing the same key returns the
-same queued job during this development-only in-memory phase.
+Use `Idempotency-Key` when retrying a request. Reusing the same key with the
+same payload returns the original job. Reusing it with a different payload
+returns `409 Conflict`.
 
 ## Poll a Job
 
@@ -40,8 +41,14 @@ same queued job during this development-only in-memory phase.
 Both endpoints return MAT-owned `product_id` and `assessment_id` unchanged.
 EvidenceAI's `job_id` identifies the asynchronous collection request.
 
-## Development Limitations
+## Current Job Lifecycle
 
-Jobs are stored in memory in this first API-contract slice. Restarting the API
-removes them. The next implementation slice adds PostgreSQL persistence and a
-worker.
+Jobs persist in PostgreSQL and are claimed by the worker using row locking. The
+current worker returns `completed_with_warnings` and an empty `suggestions`
+result. It does not collect sources, call an LLM, or write anything to MAT.
+
+Run database migrations before starting the API or worker:
+
+```bash
+docker compose run --rm api alembic upgrade head
+```
