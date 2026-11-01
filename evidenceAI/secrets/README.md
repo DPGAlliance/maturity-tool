@@ -14,3 +14,6 @@ Generate a development API key without printing it:
 ```bash
 openssl rand -hex 32 > secrets/evidence_ai_api_key
 ```
+
+EvidenceAI starts without `openai_api_key`, but completes collection jobs with a
+warning instead of AI draft suggestions.

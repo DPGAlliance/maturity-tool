@@ -15,8 +15,8 @@ Authorization: Bearer <EVIDENCE_AI_API_KEY>
 
 `POST /v1/mat/autofill-jobs`
 
-The API creates a persistent asynchronous job. The current worker records a
-completed warning and no suggestions until source collection is implemented.
+The API creates a persistent asynchronous job. The worker collects bounded
+public sources and returns citation-backed AI drafts when OpenAI is configured.
 
 ```json
 {
@@ -43,9 +43,10 @@ EvidenceAI's `job_id` identifies the asynchronous collection request.
 
 ## Current Job Lifecycle
 
-Jobs persist in PostgreSQL and are claimed by the worker using row locking. The
-current worker returns `completed_with_warnings` and an empty `suggestions`
-result. It does not collect sources, call an LLM, or write anything to MAT.
+Jobs persist in PostgreSQL and are claimed by the worker using row locking.
+Each generated item has `origin: "ai"` and `state: "suggested"`; it is never an
+accepted MAT answer. EvidenceAI never writes to MAT. When source collection or
+generation cannot run, the job completes with an explicit warning.
 
 Run database migrations before starting the API or worker:
 

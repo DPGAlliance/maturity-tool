@@ -45,8 +45,10 @@ services:
       EVIDENCE_AI_DATABASE_URL: postgresql+psycopg://${EVIDENCE_AI_DB_USER:-evidence_ai}:${EVIDENCE_AI_DB_PASSWORD:-evidence_ai_dev}@db:5432/${EVIDENCE_AI_DB_NAME:-evidence_ai}
       EVIDENCE_AI_WORKER_POLL_SECONDS: ${EVIDENCE_AI_WORKER_POLL_SECONDS:-5}
       EVIDENCE_AI_BRAVE_SEARCH_API_KEY_FILE: /run/secrets/brave_search_api_key
+      EVIDENCE_AI_OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
     secrets:
       - brave_search_api_key
+      - openai_api_key
     command: ["python", "-m", "evidence_ai.worker"]
 
 volumes:
@@ -57,3 +59,5 @@ secrets:
     file: ./secrets/evidence_ai_api_key
   brave_search_api_key:
     file: ./secrets/brave_search_api_key
+  openai_api_key:
+    file: ./secrets/openai_api_key

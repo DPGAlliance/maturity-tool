@@ -77,6 +77,8 @@ def test_worker_completes_without_fabricating_suggestions(monkeypatch, database)
     monkeypatch.setenv("EVIDENCE_AI_API_KEY", "test-key")
     monkeypatch.delenv("EVIDENCE_AI_BRAVE_SEARCH_API_KEY", raising=False)
     monkeypatch.delenv("EVIDENCE_AI_BRAVE_SEARCH_API_KEY_FILE", raising=False)
+    monkeypatch.delenv("EVIDENCE_AI_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("EVIDENCE_AI_OPENAI_API_KEY_FILE", raising=False)
     client = TestClient(app)
     headers = {"Authorization": "Bearer test-key"}
     payload = {
@@ -91,4 +93,4 @@ def test_worker_completes_without_fabricating_suggestions(monkeypatch, database)
     polled = client.get(created.json()["status_url"], headers=headers)
     assert polled.json()["status"] == "completed_with_warnings"
     assert polled.json()["result"] == {"sources": [], "suggestions": []}
-    assert "Suggestions are not generated" in polled.json()["warnings"][-1]
+    assert "OpenAI is not configured" in polled.json()["warnings"][-1]

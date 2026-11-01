@@ -51,3 +51,20 @@ class CollectedSource(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class EvidenceSuggestion(Base):
+    __tablename__ = "evidence_suggestions"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    job_id: Mapped[UUID] = mapped_column(ForeignKey("autofill_jobs.id"), nullable=False, index=True)
+    indicator_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[str] = mapped_column(String(20), nullable=False)
+    citations: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    origin: Mapped[str] = mapped_column(String(20), nullable=False, default="ai")
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="suggested")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from evidence_ai.collection import CollectedPage, fetch_supplied_page, supplied_urls
 from evidence_ai.db import SessionLocal
 from evidence_ai.discovery import discover_product_sources
-from evidence_ai.models import AutofillJob, CollectedSource
+from evidence_ai.generation import generate_draft_suggestions
+from evidence_ai.models import AutofillJob, CollectedSource, EvidenceSuggestion
 
 
 def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> bool:
@@ -49,6 +50,11 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
             CollectedPage(item.url, item.title, item.excerpt, "discovered", item.provider)
             for item in discovered
         )
+        with httpx.Client(timeout=30.0) as client:
+            suggestions, generation_warnings = generate_draft_suggestions(
+                pages, job.requested_indicators, client
+            )
+        warnings.extend(generation_warnings)
         session.add_all(
             CollectedSource(
                 job_id=job.id,
@@ -61,14 +67,35 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
             )
             for page in pages
         )
+        session.add_all(
+            EvidenceSuggestion(
+                job_id=job.id,
+                indicator_id=suggestion.indicator_id,
+                answer=suggestion.answer,
+                rationale=suggestion.rationale,
+                confidence=suggestion.confidence,
+                citations=suggestion.citations,
+            )
+            for suggestion in suggestions
+        )
         job.status = "completed_with_warnings"
         job.stage = "completed"
         job.heartbeat_at = datetime.now(timezone.utc)
-        warnings.append("Suggestions are not generated until the MAT field registry is configured.")
         job.warnings = warnings
         job.result = {
             "sources": [{"url": page.url, "source_type": page.source_type} for page in pages],
-            "suggestions": [],
+            "suggestions": [
+                {
+                    "indicator_id": suggestion.indicator_id,
+                    "answer": suggestion.answer,
+                    "rationale": suggestion.rationale,
+                    "confidence": suggestion.confidence,
+                    "citations": suggestion.citations,
+                    "origin": suggestion.origin,
+                    "state": suggestion.state,
+                }
+                for suggestion in suggestions
+            ],
         }
         session.commit()
         return True
