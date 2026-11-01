@@ -16,7 +16,7 @@ from storage.logging_config import configure_logging
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 PROMPTS_DIR = os.path.join(REPO_ROOT, "prompts")
 
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-6-luna"
 DEFAULT_HISTORY_LIMIT = 5
 DEFAULT_SUMMARY_MAX_AGE_DAYS = 30
 

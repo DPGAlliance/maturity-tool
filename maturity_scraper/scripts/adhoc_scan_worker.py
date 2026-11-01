@@ -127,7 +127,7 @@ def main() -> None:
     api_key = get_secret("API_KEY", required=True)
     openai_key = get_secret("OPENAI_API_KEY", required=True)
     summary_base_url = os.getenv("SUMMARY_BASE_URL", "http://api:8000")
-    summary_model = os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
+    summary_model = os.getenv("SUMMARY_MODEL", "gpt-6-luna")
     summary_history_limit = int(os.getenv("SUMMARY_HISTORY", "5"))
     summary_max_age_days = int(os.getenv("SUMMARY_MAX_AGE_DAYS", "30"))
     poll_seconds = float(os.getenv("ADHOC_SCAN_POLL_SECONDS", "5"))

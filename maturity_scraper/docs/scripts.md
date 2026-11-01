@@ -239,7 +239,7 @@ poetry run python summarize.py --owner <owner>
 - `--force` to override drift/age checks
 - `--history` number of runs in time series (default: 5)
 - `--max-age-days` to refresh older summaries (default: 30)
-- `--model` (default: `gpt-4o-mini`)
+- `--model` (default: `gpt-6-luna`)
 - `--base-url` (default: `http://localhost:8000`)
 
 ### Env
