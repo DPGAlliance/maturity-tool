@@ -10,6 +10,10 @@ for MAT owners or reviewers to evaluate, never an accepted answer or a MAT
 writeback. The first experiment uses requested indicator IDs verbatim until the
 MAT backend publishes its formal field registry.
 
+When MAT requests `"all"`, EvidenceAI requests one `evidence_summary` draft
+when at least one cited source is available. This provides a useful playground
+result before real MAT indicator IDs are registered.
+
 Each job also stores an internal generation trace containing the model output,
 outcome, and rejection reason. Use the authenticated job trace endpoint to
 review discarded responses when tuning prompts.

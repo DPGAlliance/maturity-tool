@@ -10,6 +10,7 @@ def test_generation_keeps_only_cited_draft_suggestions(monkeypatch) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer test-key"
+        assert "evidence_summary" in request.content.decode()
         return httpx.Response(
             200,
             json={
@@ -27,7 +28,7 @@ def test_generation_keeps_only_cited_draft_suggestions(monkeypatch) -> None:
         )
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = generate_draft_suggestions([page], ["license"], client)
+        result = generate_draft_suggestions([page], ["all"], client)
 
     assert result.warnings == []
     assert result.outcome == "generated"
