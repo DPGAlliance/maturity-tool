@@ -14,6 +14,7 @@ from evidence_ai.schemas import (
     AutofillJobCreateIn,
     AutofillJobCreatedOut,
     AutofillJobStatusOut,
+    AutofillJobTraceOut,
 )
 
 
@@ -118,3 +119,18 @@ def get_autofill_job(job_id: UUID, session: Session = Depends(get_db_session)) -
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Autofill job not found")
     return _status_out(job)
+
+
+@router.get("/{job_id}/trace", response_model=AutofillJobTraceOut)
+def get_autofill_job_trace(job_id: UUID, session: Session = Depends(get_db_session)) -> AutofillJobTraceOut:
+    from evidence_ai.models import CollectedSource, GenerationAttempt
+
+    if not session.get(AutofillJob, job_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Autofill job not found")
+    sources = session.scalars(select(CollectedSource).where(CollectedSource.job_id == job_id)).all()
+    attempts = session.scalars(select(GenerationAttempt).where(GenerationAttempt.job_id == job_id)).all()
+    return AutofillJobTraceOut(
+        job_id=job_id,
+        sources=[{"url": source.url, "source_type": source.source_type, "provider": source.provider, "title": source.title, "excerpt": source.excerpt} for source in sources],
+        generation_attempts=[{"model": attempt.model, "outcome": attempt.outcome, "raw_output": attempt.raw_output, "rejection_reason": attempt.rejection_reason, "created_at": attempt.created_at} for attempt in attempts],
+    )

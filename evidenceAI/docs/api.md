@@ -41,6 +41,15 @@ returns `409 Conflict`.
 Both endpoints return MAT-owned `product_id` and `assessment_id` unchanged.
 EvidenceAI's `job_id` identifies the asynchronous collection request.
 
+## Inspect a Job Trace
+
+`GET /v1/mat/autofill-jobs/{job_id}/trace`
+
+The authenticated MAT backend can inspect persisted source excerpts and model
+generation attempts here. Attempts include the raw model output, outcome, and
+rejection reason so prompts can be improved. This endpoint is internal-only;
+do not expose it directly to browsers.
+
 ## Current Job Lifecycle
 
 Jobs persist in PostgreSQL and are claimed by the worker using row locking.

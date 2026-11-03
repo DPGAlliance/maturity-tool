@@ -27,10 +27,11 @@ def test_generation_keeps_only_cited_draft_suggestions(monkeypatch) -> None:
         )
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        suggestions, warnings = generate_draft_suggestions([page], ["license"], client)
+        result = generate_draft_suggestions([page], ["license"], client)
 
-    assert warnings == []
-    assert suggestions == [
+    assert result.warnings == []
+    assert result.outcome == "generated"
+    assert result.suggestions == [
         DraftSuggestion("license", "Apache-2.0", "The docs state this.", "high", [page.url])
     ]
 
@@ -40,7 +41,8 @@ def test_generation_skips_when_unconfigured(monkeypatch) -> None:
     monkeypatch.delenv("EVIDENCE_AI_OPENAI_API_KEY_FILE", raising=False)
 
     with httpx.Client() as client:
-        suggestions, warnings = generate_draft_suggestions([], ["all"], client)
+        result = generate_draft_suggestions([], ["all"], client)
 
-    assert suggestions == []
-    assert warnings == ["OpenAI is not configured; no draft suggestions were generated."]
+    assert result.suggestions == []
+    assert result.outcome == "not_configured"
+    assert result.warnings == ["OpenAI is not configured; no draft suggestions were generated."]

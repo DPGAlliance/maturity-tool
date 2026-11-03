@@ -68,3 +68,17 @@ class EvidenceSuggestion(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class GenerationAttempt(Base):
+    __tablename__ = "generation_attempts"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    job_id: Mapped[UUID] = mapped_column(ForeignKey("autofill_jobs.id"), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(40), nullable=False)
+    raw_output: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

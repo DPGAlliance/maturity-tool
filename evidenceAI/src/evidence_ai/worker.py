@@ -1,16 +1,21 @@
 import os
 import time
+import logging
 from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from evidence_ai.collection import CollectedPage, fetch_supplied_page, supplied_urls
 from evidence_ai.db import SessionLocal
 from evidence_ai.discovery import discover_product_sources
 from evidence_ai.generation import generate_draft_suggestions
-from evidence_ai.models import AutofillJob, CollectedSource, EvidenceSuggestion
+from evidence_ai.models import AutofillJob, CollectedSource, EvidenceSuggestion, GenerationAttempt
+
+
+logger = logging.getLogger(__name__)
 
 
 def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> bool:
@@ -24,6 +29,8 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
         )
         if not job:
             return False
+
+        logger.info("Claimed autofill job %s", job.id)
 
         now = datetime.now(timezone.utc)
         job.status = "running"
@@ -51,10 +58,11 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
             for item in discovered
         )
         with httpx.Client(timeout=30.0) as client:
-            suggestions, generation_warnings = generate_draft_suggestions(
+            generation = generate_draft_suggestions(
                 pages, job.requested_indicators, client
             )
-        warnings.extend(generation_warnings)
+        warnings.extend(generation.warnings)
+        logger.info("Job %s generation outcome: %s", job.id, generation.outcome)
         session.add_all(
             CollectedSource(
                 job_id=job.id,
@@ -67,6 +75,15 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
             )
             for page in pages
         )
+        session.add(
+            GenerationAttempt(
+                job_id=job.id,
+                model="gpt-6-luna",
+                outcome=generation.outcome,
+                raw_output=generation.raw_output[:20_000],
+                rejection_reason=generation.rejection_reason,
+            )
+        )
         session.add_all(
             EvidenceSuggestion(
                 job_id=job.id,
@@ -76,7 +93,7 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
                 confidence=suggestion.confidence,
                 citations=suggestion.citations,
             )
-            for suggestion in suggestions
+            for suggestion in generation.suggestions
         )
         job.status = "completed_with_warnings"
         job.stage = "completed"
@@ -94,8 +111,9 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
                     "origin": suggestion.origin,
                     "state": suggestion.state,
                 }
-                for suggestion in suggestions
+                for suggestion in generation.suggestions
             ],
+            "generation_outcome": generation.outcome,
         }
         session.commit()
         return True
@@ -104,7 +122,12 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
 def run_worker() -> None:
     poll_seconds = float(os.getenv("EVIDENCE_AI_WORKER_POLL_SECONDS", "5"))
     while True:
-        if not process_next_job():
+        try:
+            processed = process_next_job()
+        except OperationalError:
+            logger.exception("Database connection failed; retrying")
+            processed = False
+        if not processed:
             time.sleep(poll_seconds)
 
 

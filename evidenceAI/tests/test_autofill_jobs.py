@@ -92,5 +92,13 @@ def test_worker_completes_without_fabricating_suggestions(monkeypatch, database)
 
     polled = client.get(created.json()["status_url"], headers=headers)
     assert polled.json()["status"] == "completed_with_warnings"
-    assert polled.json()["result"] == {"sources": [], "suggestions": []}
+    assert polled.json()["result"] == {
+        "sources": [],
+        "suggestions": [],
+        "generation_outcome": "not_configured",
+    }
     assert "OpenAI is not configured" in polled.json()["warnings"][-1]
+
+    trace = client.get(f"/v1/mat/autofill-jobs/{created.json()['job_id']}/trace", headers=headers)
+    assert trace.status_code == 200
+    assert trace.json()["generation_attempts"][0]["outcome"] == "not_configured"

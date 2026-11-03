@@ -55,3 +55,9 @@ class AutofillJobStatusOut(BaseModel):
     result: dict[str, Any] = Field(default_factory=dict)
     error_code: str | None = None
     error_message: str | None = None
+
+
+class AutofillJobTraceOut(BaseModel):
+    job_id: UUID
+    sources: list[dict[str, Any]]
+    generation_attempts: list[dict[str, Any]]
