@@ -9,6 +9,7 @@ Available documents:
 - [Search discovery](discovery.md)
 - [Source collection](collection.md)
 - [AI draft generation](generation.md)
+- [MAT public V1 registry](mat-public-v1-registry.md)
 
 Planned documents include local development instructions, source-collection
 policy, and the MAT field registry.
