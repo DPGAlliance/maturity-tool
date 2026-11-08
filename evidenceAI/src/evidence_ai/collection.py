@@ -2,7 +2,9 @@ import ipaddress
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from urllib.parse import urlsplit
+from urllib.parse import urljoin
 
 import httpx
 
@@ -20,6 +22,34 @@ class CollectedPage:
     source_type: str
     provider: str | None = None
     fetched_at: datetime | None = None
+    links: list[str] | None = None
+
+
+class _ReadableHtml(HTMLParser):
+    def __init__(self, base_url: str) -> None:
+        super().__init__()
+        self.base_url = base_url
+        self.text: list[str] = []
+        self.links: list[str] = []
+        self._ignored_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style", "noscript", "svg"}:
+            self._ignored_depth += 1
+        if tag == "a":
+            href = dict(attrs).get("href")
+            if href:
+                url = urljoin(self.base_url, href)
+                if urlsplit(url).scheme in {"http", "https"} and url not in self.links:
+                    self.links.append(url)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style", "noscript", "svg"} and self._ignored_depth:
+            self._ignored_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._ignored_depth:
+            self.text.append(data)
 
 
 def _is_public_url(url: str) -> tuple[bool, str | None]:
@@ -68,11 +98,20 @@ def fetch_supplied_page(url: str, client: httpx.Client) -> tuple[CollectedPage |
     except httpx.HTTPError as error:
         return None, f"Could not fetch {url}: {error}."
 
-    text = " ".join(body.decode(response.encoding or "utf-8", errors="replace").split())
+    decoded = body.decode(response.encoding or "utf-8", errors="replace")
+    links: list[str] = []
+    if content_type.startswith("text/html"):
+        parser = _ReadableHtml(url)
+        parser.feed(decoded)
+        text = " ".join(" ".join(parser.text).split())
+        links = parser.links[:50]
+    else:
+        text = " ".join(decoded.split())
     return CollectedPage(
         url=url,
         title=urlsplit(url).hostname or url,
         excerpt=text[:MAX_EXCERPT_CHARS],
         source_type="supplied",
         fetched_at=datetime.now(timezone.utc),
+        links=links,
     ), None

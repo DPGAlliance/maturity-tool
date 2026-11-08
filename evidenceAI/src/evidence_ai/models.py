@@ -47,6 +47,7 @@ class CollectedSource(Base):
     provider: Mapped[str | None] = mapped_column(String(100))
     title: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
     excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    links: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

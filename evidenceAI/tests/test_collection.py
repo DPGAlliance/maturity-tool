@@ -31,10 +31,11 @@ def test_fetch_supplied_page_limits_and_normalizes_text(monkeypatch) -> None:
     )
 
     def handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, headers={"content-type": "text/plain"}, content=b"hello\n world")
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=b"<script>ignore()</script><p>hello\n world</p><a href='/policy'>Policy</a>")
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         page, warning = fetch_supplied_page("https://example.org/docs", client)
 
     assert warning is None
-    assert page and page.excerpt == "hello world"
+    assert page and page.excerpt == "hello world Policy"
+    assert page.links == ["https://example.org/policy"]

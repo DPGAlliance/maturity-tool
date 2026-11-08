@@ -72,6 +72,7 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
                 title=page.title,
                 excerpt=page.excerpt,
                 fetched_at=page.fetched_at,
+                links=page.links or [],
             )
             for page in pages
         )
