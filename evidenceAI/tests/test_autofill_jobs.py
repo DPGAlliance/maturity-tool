@@ -94,7 +94,8 @@ def test_worker_completes_without_fabricating_suggestions(monkeypatch, database)
     assert polled.json()["status"] == "completed_with_warnings"
     assert polled.json()["result"] == {
         "sources": [],
-        "suggestions": [],
+        "evidence_suggestions": [],
+        "capability_suggestions": [],
         "generation_outcome": "not_configured",
     }
     assert "OpenAI is not configured" in polled.json()["warnings"][-1]

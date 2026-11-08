@@ -10,6 +10,9 @@ for MAT owners or reviewers to evaluate, never an accepted answer or a MAT
 writeback. The first experiment uses requested indicator IDs verbatim until the
 MAT backend publishes its formal field registry.
 
+Evidence-field drafts and capability drafts are returned in separate arrays.
+EvidenceAI does not assume a MAT frontend acceptance flow for either array.
+
 When MAT requests `"all"`, EvidenceAI requests one `evidence_summary` draft
 when at least one cited source is available. This provides a useful playground
 result before real MAT indicator IDs are registered.

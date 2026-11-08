@@ -59,6 +59,7 @@ class EvidenceSuggestion(Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     job_id: Mapped[UUID] = mapped_column(ForeignKey("autofill_jobs.id"), nullable=False, index=True)
     indicator_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    suggestion_type: Mapped[str] = mapped_column(String(20), nullable=False, default="evidence")
     answer: Mapped[str] = mapped_column(Text, nullable=False)
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[str] = mapped_column(String(20), nullable=False)

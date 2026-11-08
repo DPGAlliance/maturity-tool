@@ -92,6 +92,7 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
                 rationale=suggestion.rationale,
                 confidence=suggestion.confidence,
                 citations=suggestion.citations,
+                suggestion_type=suggestion.suggestion_type,
             )
             for suggestion in generation.suggestions
         )
@@ -101,7 +102,7 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
         job.warnings = warnings
         job.result = {
             "sources": [{"url": page.url, "source_type": page.source_type} for page in pages],
-            "suggestions": [
+            "evidence_suggestions": [
                 {
                     "indicator_id": suggestion.indicator_id,
                     "answer": suggestion.answer,
@@ -111,7 +112,19 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
                     "origin": suggestion.origin,
                     "state": suggestion.state,
                 }
-                for suggestion in generation.suggestions
+                for suggestion in generation.suggestions if suggestion.suggestion_type == "evidence"
+            ],
+            "capability_suggestions": [
+                {
+                    "indicator_id": suggestion.indicator_id,
+                    "answer": suggestion.answer,
+                    "rationale": suggestion.rationale,
+                    "confidence": suggestion.confidence,
+                    "citations": suggestion.citations,
+                    "origin": suggestion.origin,
+                    "state": suggestion.state,
+                }
+                for suggestion in generation.suggestions if suggestion.suggestion_type == "capability"
             ],
             "generation_outcome": generation.outcome,
         }

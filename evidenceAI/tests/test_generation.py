@@ -10,7 +10,7 @@ def test_generation_keeps_only_cited_draft_suggestions(monkeypatch) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer test-key"
-        assert "evidence_summary" in request.content.decode()
+        assert "ev_src_repo_link" in request.content.decode()
         return httpx.Response(
             200,
             json={
@@ -19,7 +19,7 @@ def test_generation_keeps_only_cited_draft_suggestions(monkeypatch) -> None:
                         "content": [
                             {
                                 "type": "output_text",
-                                "text": '{"suggestions":[{"indicator_id":"license","answer":"Apache-2.0","rationale":"The docs state this.","confidence":"high","citations":["https://docs.example.org"]}]}',
+                                "text": '{"suggestions":[{"indicator_id":"ev_src_repo_link","suggestion_type":"evidence","answer":"https://docs.example.org","rationale":"The docs state this.","confidence":"high","citations":["https://docs.example.org"]}]}',
                             }
                         ]
                     }
@@ -33,7 +33,7 @@ def test_generation_keeps_only_cited_draft_suggestions(monkeypatch) -> None:
     assert result.warnings == []
     assert result.outcome == "generated"
     assert result.suggestions == [
-        DraftSuggestion("license", "Apache-2.0", "The docs state this.", "high", [page.url])
+        DraftSuggestion("ev_src_repo_link", page.url, "The docs state this.", "high", [page.url])
     ]
 
 
