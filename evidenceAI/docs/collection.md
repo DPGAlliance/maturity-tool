@@ -16,3 +16,6 @@ The current bounded follow-up step checks up to eight linked pages whose paths
 indicate likely MAT evidence, including governance, security, architecture,
 contribution, license, roadmap, API, standards, or workflow material. These
 follow-ups remain subject to the same public-network and response-size limits.
+Follow-up requests use a five-second timeout. Each successful fetch is persisted
+immediately and the job reports `collecting_sources` progress while collection
+continues.

@@ -42,17 +42,37 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
 
         pages: list[CollectedPage] = []
         warnings: list[str] = []
+        def persist_page(page: CollectedPage) -> None:
+            pages.append(page)
+            session.add(
+                CollectedSource(
+                    job_id=job.id,
+                    url=page.url,
+                    source_type=page.source_type,
+                    provider=page.provider,
+                    title=page.title,
+                    excerpt=page.excerpt,
+                    fetched_at=page.fetched_at,
+                    links=page.links or [],
+                )
+            )
+            job.stage = "collecting_sources"
+            job.heartbeat_at = datetime.now(timezone.utc)
+            job.result = {"collection": {"fetched_sources": len(pages)}}
+            session.commit()
+
         with httpx.Client(timeout=10.0) as client:
             for url in supplied_urls(job.context):
                 page, warning = fetch_supplied_page(url, client)
                 if page:
-                    pages.append(page)
+                    persist_page(page)
                 if warning:
                     warnings.append(warning)
+        with httpx.Client(timeout=5.0) as client:
             for url in registry_follow_up_urls(pages):
                 page, warning = fetch_supplied_page(url, client)
                 if page:
-                    pages.append(
+                    persist_page(
                         CollectedPage(
                             url=page.url,
                             title=page.title,
@@ -64,6 +84,7 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
                     )
                 if warning:
                     warnings.append(warning)
+        with httpx.Client(timeout=10.0) as client:
             discovered, discovery_warnings = discover_product_sources(
                 job.product_name, job.context.get("organization_name"), client
             )
@@ -79,17 +100,8 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
         warnings.extend(generation.warnings)
         logger.info("Job %s generation outcome: %s", job.id, generation.outcome)
         session.add_all(
-            CollectedSource(
-                job_id=job.id,
-                url=page.url,
-                source_type=page.source_type,
-                provider=page.provider,
-                title=page.title,
-                excerpt=page.excerpt,
-                fetched_at=page.fetched_at,
-                links=page.links or [],
-            )
-            for page in pages
+            CollectedSource(job_id=job.id, url=page.url, source_type=page.source_type, provider=page.provider, title=page.title, excerpt=page.excerpt, fetched_at=page.fetched_at, links=[])
+            for page in pages if page.source_type == "discovered"
         )
         session.add(
             GenerationAttempt(
