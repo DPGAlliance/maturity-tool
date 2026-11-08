@@ -61,3 +61,4 @@ class AutofillJobTraceOut(BaseModel):
     job_id: UUID
     sources: list[dict[str, Any]]
     generation_attempts: list[dict[str, Any]]
+    investigation_actions: list[dict[str, Any]]

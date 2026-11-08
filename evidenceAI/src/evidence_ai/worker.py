@@ -5,14 +5,15 @@ from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from evidence_ai.collection import CollectedPage, fetch_supplied_page, registry_follow_up_urls, supplied_urls
+from evidence_ai.collection import CollectedPage
 from evidence_ai.db import SessionLocal
-from evidence_ai.discovery import discover_product_sources
 from evidence_ai.generation import generate_draft_suggestions
-from evidence_ai.models import AutofillJob, CollectedSource, EvidenceSuggestion, GenerationAttempt
+from evidence_ai.investigation import investigate
+from evidence_ai.mat_registry import three_section_pilot_indicators
+from evidence_ai.models import AutofillJob, CollectedSource, EvidenceSuggestion, GenerationAttempt, InvestigationAction
 
 
 logger = logging.getLogger(__name__)
@@ -40,69 +41,37 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
         job.attempt_count += 1
         session.commit()
 
-        pages: list[CollectedPage] = []
         warnings: list[str] = []
-        def persist_page(page: CollectedPage) -> None:
-            pages.append(page)
-            session.add(
-                CollectedSource(
-                    job_id=job.id,
-                    url=page.url,
-                    source_type=page.source_type,
-                    provider=page.provider,
-                    title=page.title,
-                    excerpt=page.excerpt,
-                    fetched_at=page.fetched_at,
-                    links=page.links or [],
-                )
-            )
-            job.stage = "collecting_sources"
-            job.heartbeat_at = datetime.now(timezone.utc)
-            job.result = {"collection": {"fetched_sources": len(pages)}}
-            session.commit()
-
+        job.stage = "investigating"
+        session.commit()
         with httpx.Client(timeout=10.0) as client:
-            for url in supplied_urls(job.context):
-                page, warning = fetch_supplied_page(url, client)
-                if page:
-                    persist_page(page)
-                if warning:
-                    warnings.append(warning)
-        with httpx.Client(timeout=5.0) as client:
-            for url in registry_follow_up_urls(pages):
-                page, warning = fetch_supplied_page(url, client)
-                if page:
-                    persist_page(
-                        CollectedPage(
-                            url=page.url,
-                            title=page.title,
-                            excerpt=page.excerpt,
-                            source_type="follow_up",
-                            fetched_at=page.fetched_at,
-                            links=page.links,
-                        )
-                    )
-                if warning:
-                    warnings.append(warning)
-        with httpx.Client(timeout=10.0) as client:
-            discovered, discovery_warnings = discover_product_sources(
-                job.product_name, job.context.get("organization_name"), client
+            pages, actions, investigation_warnings = investigate(job.context, job.product_name, client)
+        warnings.extend(investigation_warnings)
+        session.add_all(
+            InvestigationAction(
+                job_id=job.id,
+                sequence=sequence,
+                action=str(action["action"]),
+                requested=action["requested"] if isinstance(action.get("requested"), dict) else {},
+                outcome=str(action["outcome"]),
+                details={key: value for key, value in action.items() if key not in {"action", "requested", "outcome"}},
             )
-        warnings.extend(discovery_warnings)
-        pages.extend(
-            CollectedPage(item.url, item.title, item.excerpt, "discovered", item.provider)
-            for item in discovered
+            for sequence, action in enumerate(actions, start=1)
         )
+        session.add_all(
+            CollectedSource(job_id=job.id, url=page.url, source_type=page.source_type, provider=page.provider, title=page.title, excerpt=page.excerpt, fetched_at=page.fetched_at, links=page.links or [])
+            for page in pages
+        )
+        job.stage = "generating_drafts"
+        job.heartbeat_at = datetime.now(timezone.utc)
+        job.result = {"collection": {"fetched_sources": len(pages), "actions": len(actions)}}
+        session.commit()
         with httpx.Client(timeout=30.0) as client:
             generation = generate_draft_suggestions(
-                pages, job.requested_indicators, client
+                pages, three_section_pilot_indicators(), client
             )
         warnings.extend(generation.warnings)
         logger.info("Job %s generation outcome: %s", job.id, generation.outcome)
-        session.add_all(
-            CollectedSource(job_id=job.id, url=page.url, source_type=page.source_type, provider=page.provider, title=page.title, excerpt=page.excerpt, fetched_at=page.fetched_at, links=[])
-            for page in pages if page.source_type == "discovered"
-        )
         session.add(
             GenerationAttempt(
                 job_id=job.id,
@@ -165,8 +134,8 @@ def run_worker() -> None:
     while True:
         try:
             processed = process_next_job()
-        except OperationalError:
-            logger.exception("Database connection failed; retrying")
+        except SQLAlchemyError:
+            logger.exception("Database operation failed; retrying")
             processed = False
         if not processed:
             time.sleep(poll_seconds)

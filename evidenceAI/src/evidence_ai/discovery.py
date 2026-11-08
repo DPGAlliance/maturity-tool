@@ -56,10 +56,3 @@ def discover_with_brave(
             )
         )
     return results, []
-
-
-def discover_product_sources(
-    product_name: str, organization_name: str | None, client: httpx.Client
-) -> tuple[list[DiscoveryResult], list[str]]:
-    organization = f" {organization_name}" if organization_name else ""
-    return discover_with_brave(f"{product_name}{organization} official documentation source code", client)

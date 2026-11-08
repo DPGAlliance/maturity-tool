@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 
 VERSION = "mat-public-v1"
+PILOT_SECTIONS = ("source_code", "governance", "flexible_architecture")
 
 
 @dataclass(frozen=True)
@@ -82,3 +83,11 @@ def selected_capabilities(requested: list[str]) -> tuple[Capability, ...]:
         return CAPABILITIES
     wanted = set(requested)
     return tuple(capability for capability in CAPABILITIES if capability.id in wanted)
+
+
+def three_section_pilot_indicators() -> list[str]:
+    """Return the public MAT fields covered by the bounded investigation pilot."""
+    return [
+        *(field.id for field in EVIDENCE_FIELDS if field.section in PILOT_SECTIONS),
+        *(capability.id for capability in CAPABILITIES if capability.section in PILOT_SECTIONS),
+    ]

@@ -3,9 +3,10 @@
 EvidenceAI is the future evidence collection and validation service for DPG
 nomination and maturity-assessment workflows.
 
-EvidenceAI currently provides a persistent, authenticated MAT autofill job API
-and a worker lifecycle. It does not yet collect, suggest, validate, or score
-evidence.
+EvidenceAI provides a persistent, authenticated MAT autofill job API and a
+bounded investigation pilot for Source Code Accessibility, Governance, and
+Flexible Architecture. It produces citation-backed evidence and capability
+drafts only; it does not validate, score, accept, or write back to MAT.
 
 ## Local Development
 

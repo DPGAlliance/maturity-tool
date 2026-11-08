@@ -103,3 +103,7 @@ def test_worker_completes_without_fabricating_suggestions(monkeypatch, database)
     trace = client.get(f"/v1/mat/autofill-jobs/{created.json()['job_id']}/trace", headers=headers)
     assert trace.status_code == 200
     assert trace.json()["generation_attempts"][0]["outcome"] == "not_configured"
+    action = trace.json()["investigation_actions"][0]
+    assert action["action"] == "finish"
+    assert action["requested"] == {"action": "finish"}
+    assert action["outcome"] == "finished"

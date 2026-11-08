@@ -12,11 +12,6 @@ import httpx
 MAX_DIRECT_URLS = 10
 MAX_RESPONSE_BYTES = 1_000_000
 MAX_EXCERPT_CHARS = 4_000
-MAX_FOLLOW_UP_URLS = 8
-FOLLOW_UP_TERMS = {
-    "api", "architecture", "contribut", "governance", "license", "roadmap",
-    "security", "standard", "swagger", "openapi", "workflow",
-}
 
 
 @dataclass(frozen=True)
@@ -81,20 +76,6 @@ def supplied_urls(context: dict[str, object]) -> list[str]:
         if isinstance(value, str) and value not in urls:
             urls.append(value)
     return urls[:MAX_DIRECT_URLS]
-
-
-def registry_follow_up_urls(pages: list[CollectedPage]) -> list[str]:
-    """Prefer evidence-bearing links already published by supplied sources."""
-    urls: list[str] = []
-    for page in pages:
-        for url in page.links or []:
-            path = urlsplit(url).path.lower()
-            if not any(term in path for term in FOLLOW_UP_TERMS) or url in urls:
-                continue
-            urls.append(url)
-            if len(urls) == MAX_FOLLOW_UP_URLS:
-                return urls
-    return urls
 
 
 def fetch_supplied_page(url: str, client: httpx.Client) -> tuple[CollectedPage | None, str | None]:

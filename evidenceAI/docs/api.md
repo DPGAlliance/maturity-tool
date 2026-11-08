@@ -15,8 +15,9 @@ Authorization: Bearer <EVIDENCE_AI_API_KEY>
 
 `POST /v1/mat/autofill-jobs`
 
-The API creates a persistent asynchronous job. The worker collects bounded
-public sources and returns citation-backed AI drafts when OpenAI is configured.
+The API creates a persistent asynchronous job. The worker runs a bounded MAT
+pilot for Source Code Accessibility, Governance, and Flexible Architecture,
+then returns citation-backed AI drafts when OpenAI is configured.
 
 ```json
 {
@@ -45,10 +46,11 @@ EvidenceAI's `job_id` identifies the asynchronous collection request.
 
 `GET /v1/mat/autofill-jobs/{job_id}/trace`
 
-The authenticated MAT backend can inspect persisted source excerpts and model
-generation attempts here. Attempts include the raw model output, outcome, and
-rejection reason so prompts can be improved. This endpoint is internal-only;
-do not expose it directly to browsers.
+The authenticated MAT backend can inspect persisted source excerpts, bounded
+investigation actions, and model generation attempts here. Each action records
+the model request, validated execution outcome, and details. Attempts include
+the raw model output, outcome, and rejection reason so prompts can be improved.
+This endpoint is internal-only; do not expose it directly to browsers.
 
 ## Current Job Lifecycle
 
