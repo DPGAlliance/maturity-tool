@@ -1,4 +1,5 @@
 import httpx
+import json
 
 from evidence_ai.collection import CollectedPage
 from evidence_ai.generation import DraftSuggestion, generate_draft_suggestions
@@ -47,3 +48,17 @@ def test_generation_skips_when_unconfigured(monkeypatch) -> None:
     assert result.suggestions == []
     assert result.outcome == "not_configured"
     assert result.warnings == ["OpenAI is not configured; no draft suggestions were generated."]
+
+
+def test_generation_marks_partial_sources_in_the_prompt(monkeypatch) -> None:
+    monkeypatch.setenv("EVIDENCE_AI_OPENAI_API_KEY", "test-key")
+    page = CollectedPage("https://docs.example.org", "Docs", "Visible evidence", "supplied", is_partial=True, fetched_bytes=1_000_000)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert '"is_partial": true' in json.loads(request.content)["input"]
+        return httpx.Response(200, json={"output": [{"content": [{"type": "output_text", "text": '{"suggestions":[]}'}]}]})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = generate_draft_suggestions([page], ["all"], client)
+
+    assert result.outcome == "empty"

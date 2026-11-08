@@ -12,6 +12,7 @@ import httpx
 MAX_DIRECT_URLS = 10
 MAX_RESPONSE_BYTES = 1_000_000
 MAX_EXCERPT_CHARS = 4_000
+MAX_REDIRECTS = 3
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,8 @@ class CollectedPage:
     provider: str | None = None
     fetched_at: datetime | None = None
     links: list[str] | None = None
+    is_partial: bool = False
+    fetched_bytes: int | None = None
 
 
 class _ReadableHtml(HTMLParser):
@@ -79,39 +82,53 @@ def supplied_urls(context: dict[str, object]) -> list[str]:
 
 
 def fetch_supplied_page(url: str, client: httpx.Client) -> tuple[CollectedPage | None, str | None]:
-    allowed, reason = _is_public_url(url)
-    if not allowed:
-        return None, f"Skipped {url}: {reason}."
-    try:
-        with client.stream("GET", url, follow_redirects=False) as response:
-            if response.is_redirect:
-                return None, f"Skipped {url}: redirects are not followed."
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "").lower()
-            if not (content_type.startswith("text/") or "json" in content_type):
-                return None, f"Skipped {url}: unsupported content type."
-            body = b""
-            for chunk in response.iter_bytes():
-                body += chunk
-                if len(body) > MAX_RESPONSE_BYTES:
-                    return None, f"Skipped {url}: response exceeded 1 MB."
-    except httpx.HTTPError as error:
-        return None, f"Could not fetch {url}: {error}."
+    current_url = url
+    for _ in range(MAX_REDIRECTS + 1):
+        allowed, reason = _is_public_url(current_url)
+        if not allowed:
+            return None, f"Skipped {current_url}: {reason}."
+        try:
+            with client.stream("GET", current_url, follow_redirects=False) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        return None, f"Skipped {current_url}: redirect has no destination."
+                    current_url = urljoin(current_url, location)
+                    continue
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "").lower()
+                if not (content_type.startswith("text/") or "json" in content_type):
+                    return None, f"Skipped {current_url}: unsupported content type."
+                body = b""
+                is_partial = False
+                for chunk in response.iter_bytes():
+                    remaining = MAX_RESPONSE_BYTES - len(body)
+                    body += chunk[:remaining]
+                    if len(chunk) > remaining:
+                        is_partial = True
+                        break
+        except httpx.HTTPError as error:
+            return None, f"Could not fetch {current_url}: {error}."
+        break
+    else:
+        return None, f"Skipped {url}: exceeded {MAX_REDIRECTS} redirects."
 
     decoded = body.decode(response.encoding or "utf-8", errors="replace")
     links: list[str] = []
     if content_type.startswith("text/html"):
-        parser = _ReadableHtml(url)
+        parser = _ReadableHtml(current_url)
         parser.feed(decoded)
         text = " ".join(" ".join(parser.text).split())
         links = parser.links[:50]
     else:
         text = " ".join(decoded.split())
     return CollectedPage(
-        url=url,
-        title=urlsplit(url).hostname or url,
+        url=current_url,
+        title=urlsplit(current_url).hostname or current_url,
         excerpt=text[:MAX_EXCERPT_CHARS],
         source_type="supplied",
         fetched_at=datetime.now(timezone.utc),
         links=links,
+        is_partial=is_partial,
+        fetched_bytes=len(body),
     ), None

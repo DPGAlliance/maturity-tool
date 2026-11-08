@@ -61,7 +61,7 @@ def generate_draft_suggestions(
     capabilities = selected_capabilities(requested_indicators)
     if not fields and not capabilities:
         return GenerationResult([], ["No requested MAT registry fields were found."], "not_configured")
-    sources = [{"url": page.url, "excerpt": page.excerpt} for page in pages]
+    sources = [{"url": page.url, "excerpt": page.excerpt, "is_partial": page.is_partial} for page in pages]
     registry = {
         "evidence_fields": [field.__dict__ for field in fields],
         "capabilities": [capability.__dict__ for capability in capabilities],
@@ -72,7 +72,9 @@ def generate_draft_suggestions(
         "or high), citations, and suggestion_type (evidence or capability). Evidence suggestions must use "
         "an evidence_fields ID. Capability suggestions must use a capabilities ID and state only what the "
         "cited source explicitly supports. Cite only supplied source URLs. Produce no suggestion when evidence "
-        "is insufficient. These are drafts, never accepted MAT answers. "
+        "is insufficient. A partial source supports only facts explicitly visible in its excerpt, never conclusions "
+        "about omitted content. You may return multiple complementary suggestions for one field when each has distinct "
+        "supporting evidence; do not duplicate equivalent answers. These are drafts, never accepted MAT answers. "
         f"MAT registry: {json.dumps(registry)}. Sources: {json.dumps(sources)}"
     )
     try:

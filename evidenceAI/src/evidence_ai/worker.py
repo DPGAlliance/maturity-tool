@@ -59,7 +59,7 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
             for sequence, action in enumerate(actions, start=1)
         )
         session.add_all(
-            CollectedSource(job_id=job.id, url=page.url, source_type=page.source_type, provider=page.provider, title=page.title, excerpt=page.excerpt, fetched_at=page.fetched_at, links=page.links or [])
+            CollectedSource(job_id=job.id, url=page.url, source_type=page.source_type, provider=page.provider, title=page.title, excerpt=page.excerpt, fetched_at=page.fetched_at, links=page.links or [], is_partial=page.is_partial, fetched_bytes=page.fetched_bytes)
             for page in pages
         )
         job.stage = "generating_drafts"

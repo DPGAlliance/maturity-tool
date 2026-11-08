@@ -3,7 +3,7 @@ import socket
 
 import httpx
 
-from evidence_ai.investigation import investigate
+from evidence_ai.investigation import _github_files, investigate
 
 
 def test_investigation_executes_only_model_selected_allow_listed_actions(monkeypatch) -> None:
@@ -65,3 +65,17 @@ def test_investigation_rejects_links_not_in_shared_context(monkeypatch) -> None:
     assert warnings == []
     assert trace[0]["outcome"] == "rejected"
     assert "allow-listed" in trace[0]["reason"]
+
+
+def test_github_listing_prioritizes_evidence_artifacts() -> None:
+    files = [{"path": f"services/service-{index}.py", "type": "blob"} for index in range(50)]
+    files.extend([
+        {"path": "LICENSE", "type": "blob"},
+        {"path": "docs/architecture.md", "type": "blob"},
+    ])
+
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"tree": files}))) as client:
+        listed, warning = _github_files("example/product", client)
+
+    assert warning is None
+    assert listed[:2] == ["docs/architecture.md", "LICENSE"]

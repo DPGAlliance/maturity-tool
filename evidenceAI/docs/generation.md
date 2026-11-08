@@ -12,12 +12,10 @@ writeback. The first experiment uses requested indicator IDs verbatim until the
 MAT backend publishes its formal field registry.
 
 Evidence-field drafts and capability drafts are returned in separate arrays.
+The model may return multiple distinct, complementary candidates for one field;
+each must cite collected evidence and duplicate answers are not requested.
 EvidenceAI does not assume a MAT frontend acceptance flow for either array and
 never writes any draft back to MAT.
-
-When MAT requests `"all"`, EvidenceAI requests one `evidence_summary` draft
-when at least one cited source is available. This provides a useful playground
-result before real MAT indicator IDs are registered.
 
 Each job also stores an internal generation trace containing the model output,
 outcome, and rejection reason. Use the authenticated job trace endpoint to

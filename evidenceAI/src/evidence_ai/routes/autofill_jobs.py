@@ -134,7 +134,7 @@ def get_autofill_job_trace(job_id: UUID, session: Session = Depends(get_db_sessi
     ).all()
     return AutofillJobTraceOut(
         job_id=job_id,
-        sources=[{"url": source.url, "source_type": source.source_type, "provider": source.provider, "title": source.title, "excerpt": source.excerpt} for source in sources],
+        sources=[{"url": source.url, "source_type": source.source_type, "provider": source.provider, "title": source.title, "excerpt": source.excerpt, "is_partial": source.is_partial, "fetched_bytes": source.fetched_bytes} for source in sources],
         generation_attempts=[{"model": attempt.model, "outcome": attempt.outcome, "raw_output": attempt.raw_output, "rejection_reason": attempt.rejection_reason, "created_at": attempt.created_at} for attempt in attempts],
         investigation_actions=[{"sequence": action.sequence, "action": action.action, "requested": action.requested, "outcome": action.outcome, "details": action.details, "created_at": action.created_at} for action in actions],
     )

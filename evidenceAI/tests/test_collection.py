@@ -2,7 +2,7 @@ import socket
 
 import httpx
 
-from evidence_ai.collection import fetch_supplied_page, supplied_urls
+from evidence_ai.collection import MAX_RESPONSE_BYTES, fetch_supplied_page, supplied_urls
 
 
 def test_supplied_urls_deduplicates_and_caps_urls() -> None:
@@ -39,3 +39,39 @@ def test_fetch_supplied_page_limits_and_normalizes_text(monkeypatch) -> None:
     assert warning is None
     assert page and page.excerpt == "hello world Policy"
     assert page.links == ["https://example.org/policy"]
+
+
+def test_fetch_supplied_page_follows_validated_redirects(monkeypatch) -> None:
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))],
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"location": "/architecture"})
+        return httpx.Response(200, headers={"content-type": "text/html"}, text="<p>Architecture</p>")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        page, warning = fetch_supplied_page("https://example.org/start", client)
+
+    assert warning is None
+    assert page and page.url == "https://example.org/architecture"
+    assert page.excerpt == "Architecture"
+
+
+def test_fetch_supplied_page_retains_a_bounded_partial_response(monkeypatch) -> None:
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))],
+    )
+
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, headers={"content-type": "text/plain"}, content=b"a" * (MAX_RESPONSE_BYTES + 1)))) as client:
+        page, warning = fetch_supplied_page("https://example.org/large", client)
+
+    assert warning is None
+    assert page and page.is_partial is True
+    assert page.fetched_bytes == MAX_RESPONSE_BYTES
+    assert page.excerpt == "a" * 4_000

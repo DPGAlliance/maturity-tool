@@ -48,6 +48,8 @@ class CollectedSource(Base):
     title: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
     excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     links: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    is_partial: Mapped[bool] = mapped_column(nullable=False, default=False)
+    fetched_bytes: Mapped[int | None] = mapped_column(Integer)
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
