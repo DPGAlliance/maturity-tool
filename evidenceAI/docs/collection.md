@@ -11,3 +11,8 @@ Brave results are stored as bounded discovery metadata only. EvidenceAI does
 not fetch those candidates yet, so search does not expand the network access
 surface beyond URLs explicitly supplied by MAT. A later bounded investigation
 step may follow persisted links when they satisfy registry-defined evidence gaps.
+
+The current bounded follow-up step checks up to eight linked pages whose paths
+indicate likely MAT evidence, including governance, security, architecture,
+contribution, license, roadmap, API, standards, or workflow material. These
+follow-ups remain subject to the same public-network and response-size limits.

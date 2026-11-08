@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from evidence_ai.collection import CollectedPage, fetch_supplied_page, supplied_urls
+from evidence_ai.collection import CollectedPage, fetch_supplied_page, registry_follow_up_urls, supplied_urls
 from evidence_ai.db import SessionLocal
 from evidence_ai.discovery import discover_product_sources
 from evidence_ai.generation import generate_draft_suggestions
@@ -47,6 +47,21 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
                 page, warning = fetch_supplied_page(url, client)
                 if page:
                     pages.append(page)
+                if warning:
+                    warnings.append(warning)
+            for url in registry_follow_up_urls(pages):
+                page, warning = fetch_supplied_page(url, client)
+                if page:
+                    pages.append(
+                        CollectedPage(
+                            url=page.url,
+                            title=page.title,
+                            excerpt=page.excerpt,
+                            source_type="follow_up",
+                            fetched_at=page.fetched_at,
+                            links=page.links,
+                        )
+                    )
                 if warning:
                     warnings.append(warning)
             discovered, discovery_warnings = discover_product_sources(

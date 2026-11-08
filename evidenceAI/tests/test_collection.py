@@ -2,7 +2,7 @@ import socket
 
 import httpx
 
-from evidence_ai.collection import fetch_supplied_page, supplied_urls
+from evidence_ai.collection import CollectedPage, fetch_supplied_page, registry_follow_up_urls, supplied_urls
 
 
 def test_supplied_urls_deduplicates_and_caps_urls() -> None:
@@ -39,3 +39,24 @@ def test_fetch_supplied_page_limits_and_normalizes_text(monkeypatch) -> None:
     assert warning is None
     assert page and page.excerpt == "hello world Policy"
     assert page.links == ["https://example.org/policy"]
+
+
+def test_follow_up_urls_prefers_registry_relevant_links() -> None:
+    pages = [
+        CollectedPage(
+            "https://example.org",
+            "Example",
+            "",
+            "supplied",
+            links=[
+                "https://example.org/about",
+                "https://example.org/GOVERNANCE.md",
+                "https://example.org/security-policy",
+            ],
+        )
+    ]
+
+    assert registry_follow_up_urls(pages) == [
+        "https://example.org/GOVERNANCE.md",
+        "https://example.org/security-policy",
+    ]
