@@ -28,12 +28,14 @@ class InvestigationContext:
     pages: list[CollectedPage] = field(default_factory=list)
     actions: list[dict[str, object]] = field(default_factory=list)
     github_files: dict[str, list[str]] = field(default_factory=dict)
+    listed_repositories: set[str] = field(default_factory=set)
     read_github_files: set[tuple[str, str]] = field(default_factory=set)
     read_urls: set[str] = field(default_factory=set)
+    discovery_urls: list[str] = field(default_factory=list)
 
     @property
     def readable_links(self) -> list[str]:
-        links = list(self.supplied_links)
+        links = [*self.supplied_links, *self.discovery_urls]
         for page in self.pages:
             for link in page.links or []:
                 if link not in links:
@@ -81,7 +83,7 @@ def _github_repository(url: str) -> str | None:
     return f"{owner}/{repository.removesuffix('.git')}"
 
 
-def _choose_action(context: InvestigationContext, client: httpx.Client) -> tuple[dict[str, object], str | None]:
+def _choose_action(context: InvestigationContext, client: httpx.Client, reads: int, github_lists: int, github_reads: int, searches: int) -> tuple[dict[str, object], str | None]:
     api_key = _openai_api_key()
     if not api_key:
         return {"action": "finish"}, "OpenAI is not configured; investigation stopped after supplied sources."
@@ -89,11 +91,28 @@ def _choose_action(context: InvestigationContext, client: httpx.Client) -> tuple
         "sections": context.sections,
         "readable_links": context.readable_links,
         "github_repositories": [repository for url in context.readable_links if (repository := _github_repository(url))],
+        "listed_repositories": sorted(context.listed_repositories),
         "github_files": context.github_files,
         "read_github_files": sorted(f"{repository}/{path}" for repository, path in context.read_github_files),
         "read_urls": sorted(context.read_urls),
+        "discovery_candidates": context.discovery_urls,
         "unresolved_gaps": context.unresolved_gaps,
         "actions_remaining": MAX_ACTIONS - len(context.actions),
+        "remaining_budgets": {
+            "page_reads": MAX_PAGE_READS - reads,
+            "github_lists": MAX_GITHUB_LISTS - github_lists,
+            "github_file_reads": MAX_GITHUB_FILE_READS - github_reads,
+            "brave_searches": MAX_BRAVE_SEARCHES - searches,
+        },
+        "available_actions": {
+            "read_existing_links": [url for url in context.readable_links if url not in context.read_urls] if reads < MAX_PAGE_READS else [],
+            "list_github_repositories": [repository for url in context.readable_links if (repository := _github_repository(url)) and repository not in context.listed_repositories] if github_lists < MAX_GITHUB_LISTS else [],
+            "read_github_files": {
+                repository: [path for path in files if (repository, path) not in context.read_github_files]
+                for repository, files in context.github_files.items()
+            } if github_reads < MAX_GITHUB_FILE_READS else {},
+            "brave_search_gaps": context.unresolved_gaps if searches < MAX_BRAVE_SEARCHES else [],
+        },
         "collected_sources": [
             {"url": page.url, "excerpt": page.excerpt[:1_200], "is_partial": page.is_partial}
             for page in context.pages
@@ -101,6 +120,11 @@ def _choose_action(context: InvestigationContext, client: httpx.Client) -> tuple
         "targets": {
             "evidence_fields": [field.__dict__ for field in selected_evidence_fields(three_section_pilot_indicators())],
             "capabilities": [capability.__dict__ for capability in selected_capabilities(three_section_pilot_indicators())],
+        },
+        "assessment_scope": {
+            "product_name": context.product_name,
+            "organization_name": context.organization_name,
+            "supplied_links": context.supplied_links,
         },
     }
     prompt = (
@@ -111,11 +135,14 @@ def _choose_action(context: InvestigationContext, client: httpx.Client) -> tuple
         '{"action":"read_github_file","repository":"owner/repo","path":"..."}, '
         '{"action":"brave_search","gap":"source_code|governance|flexible_architecture"}, or '
         '{"action":"finish"}. A link must be from readable_links, a GitHub file must be listed, and Brave is only '
-        "for an unresolved_gaps value. Prefer direct supporting artifacts over project self-description: inspect a LICENSE "
+        "for an unresolved_gaps value. You may select only values in available_actions; select finish when no useful "
+        "available action remains. Prefer direct supporting artifacts over project self-description: inspect a LICENSE "
         "or COPYING file for license claims, and architecture/design/specification documents or concrete implementation "
         "examples for architecture claims. Do not treat a README claim as sufficient when a stronger artifact is available. "
         "Use collected_sources to decide what remains unverified. A partial source supports only claims explicitly "
         "visible in its excerpt, never claims about omitted content. Prefer a linked Markdown version when available. "
+        "Treat related organizations, products, components, and repositories as leads, not evidence for the assessed "
+        "product, unless the collected source explicitly establishes their applicability. "
         "Finish when no safe useful action remains. "
         f"State: {json.dumps(state)}"
     )
@@ -139,8 +166,20 @@ def _github_files(repository: str, client: httpx.Client) -> tuple[list[str], str
     except httpx.HTTPError as error:
         return [], f"GitHub repository listing failed for {repository}: {error}"
     files = [item.get("path") for item in response.json().get("tree", []) if item.get("type") == "blob" and isinstance(item.get("path"), str)]
-    evidence_terms = ("license", "copying", "governance", "decision", "charter", "architecture", "design", "specification", "contributing", "readme", "security", "roadmap")
-    files.sort(key=lambda path: (not any(term in path.lower() for term in evidence_terms), path.lower()))
+    def evidence_rank(path: str) -> tuple[int, str]:
+        normalized = path.lower()
+        basename = normalized.rsplit("/", 1)[-1]
+        if basename in {"license", "license.md", "license.txt", "copying", "copying.md"}:
+            return 0, normalized
+        if "/" not in normalized and basename in {"contributing.md", "governance.md", "architecture.md", "readme.md", "security.md", "roadmap.md"}:
+            return 1, normalized
+        if any(term in normalized for term in ("governance", "decision", "charter", "architecture", "design", "specification", "contributing", "roadmap")):
+            return 2, normalized
+        if "/" not in normalized:
+            return 3, normalized
+        return 4, normalized
+
+    files.sort(key=evidence_rank)
     return files[:MAX_GITHUB_FILES], None
 
 
@@ -160,7 +199,7 @@ def investigate(context_data: dict[str, object], product_name: str, client: http
     warnings: list[str] = []
     reads = github_lists = github_reads = searches = 0
     while len(context.actions) < MAX_ACTIONS:
-        action, warning = _choose_action(context, client)
+        action, warning = _choose_action(context, client, reads, github_lists, github_reads, searches)
         if warning:
             warnings.append(warning)
         name = action.get("action")
@@ -179,10 +218,11 @@ def investigate(context_data: dict[str, object], product_name: str, client: http
                 context.pages.append(page)
             if fetch_warning:
                 warnings.append(fetch_warning)
-        elif name == "list_github_repository" and github_lists < MAX_GITHUB_LISTS and action.get("repository") in [_github_repository(url) for url in context.readable_links]:
+        elif name == "list_github_repository" and github_lists < MAX_GITHUB_LISTS and action.get("repository") not in context.listed_repositories and action.get("repository") in [_github_repository(url) for url in context.readable_links]:
             repository = str(action["repository"])
             files, list_warning = _github_files(repository, client)
             github_lists += 1
+            context.listed_repositories.add(repository)
             context.github_files[repository] = files
             trace.update(outcome="listed" if not list_warning else "failed", repository=repository, files=files)
             if list_warning:
@@ -201,7 +241,9 @@ def investigate(context_data: dict[str, object], product_name: str, client: http
             gap = str(action["gap"])
             discovered, search_warnings = discover_with_brave(f"{product_name} {gap.replace('_', ' ')} official", client, limit=5)
             searches += 1
-            context.pages.extend(CollectedPage(item.url, item.title, item.excerpt, "discovered", item.provider) for item in discovered)
+            for item in discovered:
+                if item.url not in context.discovery_urls:
+                    context.discovery_urls.append(item.url)
             trace.update(outcome="discovered", gap=gap, result_urls=[item.url for item in discovered])
             warnings.extend(search_warnings)
         else:

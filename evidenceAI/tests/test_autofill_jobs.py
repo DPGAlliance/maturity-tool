@@ -1,5 +1,6 @@
 import json
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,8 @@ from sqlalchemy.pool import StaticPool
 
 from evidence_ai.db import Base, get_db_session
 from evidence_ai.main import app
-from evidence_ai.worker import process_next_job
+from evidence_ai.models import AutofillJob
+from evidence_ai.worker import fail_stale_jobs, process_next_job
 
 
 DIGIT_CORE_FIXTURE = Path(__file__).parent / "fixtures" / "digit_core_job.json"
@@ -107,3 +109,26 @@ def test_worker_completes_without_fabricating_suggestions(monkeypatch, database)
     assert action["action"] == "finish"
     assert action["requested"] == {"action": "finish"}
     assert action["outcome"] == "finished"
+
+
+def test_worker_marks_stale_jobs_as_failed(database) -> None:
+    with database() as session:
+        job = AutofillJob(
+            product_id="product",
+            assessment_id="assessment",
+            product_name="Product",
+            request_fingerprint="x" * 64,
+            status="running",
+            stage="investigating",
+            heartbeat_at=datetime.now(timezone.utc) - timedelta(minutes=6),
+        )
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    assert fail_stale_jobs(database) == 1
+
+    with database() as session:
+        job = session.get(AutofillJob, job_id)
+        assert job and job.status == "failed"
+        assert job.error_code == "worker_heartbeat_timeout"

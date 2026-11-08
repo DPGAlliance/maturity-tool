@@ -51,7 +51,7 @@ def _response_text(payload: dict[str, object]) -> str:
 
 
 def generate_draft_suggestions(
-    pages: list[CollectedPage], requested_indicators: list[str], client: httpx.Client
+    pages: list[CollectedPage], requested_indicators: list[str], client: httpx.Client, product_name: str | None = None
 ) -> GenerationResult:
     api_key = _openai_api_key()
     if not api_key:
@@ -73,9 +73,10 @@ def generate_draft_suggestions(
         "an evidence_fields ID. Capability suggestions must use a capabilities ID and state only what the "
         "cited source explicitly supports. Cite only supplied source URLs. Produce no suggestion when evidence "
         "is insufficient. A partial source supports only facts explicitly visible in its excerpt, never conclusions "
-        "about omitted content. You may return multiple complementary suggestions for one field when each has distinct "
+        "about omitted content. Cite a related project, component, or organization only when the source explicitly "
+        "establishes that it applies to the assessed product. You may return multiple complementary suggestions for one field when each has distinct "
         "supporting evidence; do not duplicate equivalent answers. These are drafts, never accepted MAT answers. "
-        f"MAT registry: {json.dumps(registry)}. Sources: {json.dumps(sources)}"
+        f"Assessed product: {product_name or 'not specified'}. MAT registry: {json.dumps(registry)}. Sources: {json.dumps(sources)}"
     )
     try:
         response = client.post(

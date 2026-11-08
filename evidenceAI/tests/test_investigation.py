@@ -20,6 +20,7 @@ def test_investigation_executes_only_model_selected_allow_listed_actions(monkeyp
             {"action": "list_github_repository", "repository": "example/product"},
             {"action": "read_github_file", "repository": "example/product", "path": "ARCHITECTURE.md"},
             {"action": "brave_search", "gap": "governance"},
+            {"action": "read_existing_link", "url": "https://example.org/governance"},
             {"action": "finish"},
         ]
     )
@@ -35,6 +36,8 @@ def test_investigation_executes_only_model_selected_allow_listed_actions(monkeyp
             return httpx.Response(200, text="Modular extension architecture")
         if request.url.host == "api.search.brave.com":
             return httpx.Response(200, json={"web": {"results": [{"url": "https://example.org/governance", "title": "Governance", "description": "Steering group"}]}})
+        if request.url.host == "example.org":
+            return httpx.Response(200, headers={"content-type": "text/html"}, text="<p>Steering group charter</p>")
         raise AssertionError(f"Unexpected request: {request.url}")
 
     context = {"documentation_urls": ["https://docs.example.org"], "repository_url": "https://github.com/example/product"}
@@ -42,8 +45,8 @@ def test_investigation_executes_only_model_selected_allow_listed_actions(monkeyp
         pages, trace, warnings = investigate(context, "Example Product", client)
 
     assert warnings == []
-    assert [entry["outcome"] for entry in trace] == ["collected", "listed", "collected", "discovered", "finished"]
-    assert [page.source_type for page in pages] == ["supplied", "github", "discovered"]
+    assert [entry["outcome"] for entry in trace] == ["collected", "listed", "collected", "discovered", "collected", "finished"]
+    assert [page.source_type for page in pages] == ["supplied", "github", "supplied"]
     assert pages[1].url == "https://github.com/example/product/blob/HEAD/ARCHITECTURE.md"
 
 
@@ -78,4 +81,4 @@ def test_github_listing_prioritizes_evidence_artifacts() -> None:
         listed, warning = _github_files("example/product", client)
 
     assert warning is None
-    assert listed[:2] == ["docs/architecture.md", "LICENSE"]
+    assert listed[:2] == ["LICENSE", "docs/architecture.md"]

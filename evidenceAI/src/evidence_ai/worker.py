@@ -1,7 +1,7 @@
 import os
 import time
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import select
@@ -17,6 +17,27 @@ from evidence_ai.models import AutofillJob, CollectedSource, EvidenceSuggestion,
 
 
 logger = logging.getLogger(__name__)
+STALE_JOB_SECONDS = 300
+
+
+def fail_stale_jobs(session_factory: sessionmaker[Session] = SessionLocal) -> int:
+    """Make abandoned work visible rather than leaving jobs running forever."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=STALE_JOB_SECONDS)
+    with session_factory() as session:
+        jobs = session.scalars(
+            select(AutofillJob).where(
+                AutofillJob.status == "running",
+                AutofillJob.heartbeat_at < cutoff,
+            )
+        ).all()
+        for job in jobs:
+            job.status = "failed"
+            job.stage = "failed"
+            job.error_code = "worker_heartbeat_timeout"
+            job.error_message = "The worker heartbeat expired before this job completed."
+            job.heartbeat_at = datetime.now(timezone.utc)
+        session.commit()
+        return len(jobs)
 
 
 def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> bool:
@@ -68,7 +89,7 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
         session.commit()
         with httpx.Client(timeout=30.0) as client:
             generation = generate_draft_suggestions(
-                pages, three_section_pilot_indicators(), client
+                pages, three_section_pilot_indicators(), client, job.product_name
             )
         warnings.extend(generation.warnings)
         logger.info("Job %s generation outcome: %s", job.id, generation.outcome)
@@ -93,7 +114,7 @@ def process_next_job(session_factory: sessionmaker[Session] = SessionLocal) -> b
             )
             for suggestion in generation.suggestions
         )
-        job.status = "completed_with_warnings"
+        job.status = "completed_with_warnings" if warnings else "completed"
         job.stage = "completed"
         job.heartbeat_at = datetime.now(timezone.utc)
         job.warnings = warnings
@@ -133,6 +154,9 @@ def run_worker() -> None:
     poll_seconds = float(os.getenv("EVIDENCE_AI_WORKER_POLL_SECONDS", "5"))
     while True:
         try:
+            failed = fail_stale_jobs()
+            if failed:
+                logger.warning("Marked %s stale autofill job(s) as failed", failed)
             processed = process_next_job()
         except SQLAlchemyError:
             logger.exception("Database operation failed; retrying")
